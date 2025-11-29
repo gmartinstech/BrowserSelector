@@ -1,0 +1,451 @@
+package com.browserselector.ui;
+
+import com.browserselector.model.Browser;
+import com.browserselector.model.Setting;
+import com.browserselector.model.UrlRule;
+import com.browserselector.service.*;
+import com.formdev.flatlaf.FlatDarkLaf;
+import com.formdev.flatlaf.FlatLightLaf;
+
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.table.DefaultTableModel;
+import java.awt.*;
+import java.nio.file.Path;
+import java.util.List;
+
+public class SettingsFrame extends JFrame {
+
+    private final DatabaseService db;
+    private final RegistryService registry;
+    private final BrowserDetector browserDetector;
+    private final ProfileDetector profileDetector;
+
+    private JTabbedPane tabbedPane;
+    private JTable rulesTable;
+    private JTable browsersTable;
+    private DefaultTableModel rulesModel;
+    private DefaultTableModel browsersModel;
+
+    private JCheckBox advancedModeCheck;
+    private JCheckBox showIncognitoCheck;
+    private JCheckBox darkThemeCheck;
+    private JCheckBox systemThemeCheck;
+
+    private boolean advancedMode;
+
+    public SettingsFrame() {
+        super("Browser Selector - Settings");
+        this.db = DatabaseService.getInstance();
+        this.registry = new RegistryService();
+        this.browserDetector = new BrowserDetector();
+        this.profileDetector = new ProfileDetector();
+        this.advancedMode = db.getToggle(Setting.Toggle.ADVANCED_MODE, false);
+
+        initUI();
+        loadData();
+        centerOnScreen();
+    }
+
+    private void initUI() {
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setSize(700, 500);
+
+        tabbedPane = new JTabbedPane();
+
+        // Rules tab
+        tabbedPane.addTab("URL Rules", createRulesPanel());
+
+        // Browsers tab (advanced mode)
+        if (advancedMode) {
+            tabbedPane.addTab("Browsers", createBrowsersPanel());
+        }
+
+        // Settings tab
+        tabbedPane.addTab("Settings", createSettingsPanel());
+
+        add(tabbedPane);
+    }
+
+    private JPanel createRulesPanel() {
+        var panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(new EmptyBorder(10, 10, 10, 10));
+
+        // Table
+        rulesModel = new DefaultTableModel(new String[]{"Pattern", "Browser", "Priority"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+        rulesTable = new JTable(rulesModel);
+        rulesTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        rulesTable.getColumnModel().getColumn(2).setPreferredWidth(60);
+        rulesTable.getColumnModel().getColumn(2).setMaxWidth(80);
+
+        panel.add(new JScrollPane(rulesTable), BorderLayout.CENTER);
+
+        // Buttons
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+
+        var addBtn = new JButton("Add Rule");
+        addBtn.addActionListener(e -> addRule());
+
+        var deleteBtn = new JButton("Delete");
+        deleteBtn.addActionListener(e -> deleteSelectedRule());
+
+        if (advancedMode) {
+            var moveUpBtn = new JButton("Move Up");
+            moveUpBtn.addActionListener(e -> moveRule(-1));
+
+            var moveDownBtn = new JButton("Move Down");
+            moveDownBtn.addActionListener(e -> moveRule(1));
+
+            buttonPanel.add(moveUpBtn);
+            buttonPanel.add(moveDownBtn);
+        }
+
+        buttonPanel.add(addBtn);
+        buttonPanel.add(deleteBtn);
+
+        panel.add(buttonPanel, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    private JPanel createBrowsersPanel() {
+        var panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(new EmptyBorder(10, 10, 10, 10));
+
+        // Table
+        browsersModel = new DefaultTableModel(new String[]{"Enabled", "Name", "Path"}, 0) {
+            @Override
+            public Class<?> getColumnClass(int column) {
+                return column == 0 ? Boolean.class : String.class;
+            }
+
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return column == 0;
+            }
+        };
+        browsersTable = new JTable(browsersModel);
+        browsersTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        browsersTable.getColumnModel().getColumn(0).setPreferredWidth(60);
+        browsersTable.getColumnModel().getColumn(0).setMaxWidth(80);
+
+        browsersTable.getModel().addTableModelListener(e -> {
+            if (e.getColumn() == 0) {
+                int row = e.getFirstRow();
+                var enabled = (Boolean) browsersModel.getValueAt(row, 0);
+                var browserId = getBrowserIdAtRow(row);
+                if (browserId != null) {
+                    db.getBrowser(browserId).ifPresent(browser ->
+                        db.saveBrowser(browser.withEnabled(enabled)));
+                }
+            }
+        });
+
+        panel.add(new JScrollPane(browsersTable), BorderLayout.CENTER);
+
+        // Buttons
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+
+        var rescanBtn = new JButton("Re-scan Browsers");
+        rescanBtn.addActionListener(e -> rescanBrowsers());
+
+        var detectProfilesBtn = new JButton("Detect Profiles");
+        detectProfilesBtn.addActionListener(e -> detectProfiles());
+
+        buttonPanel.add(rescanBtn);
+        buttonPanel.add(detectProfilesBtn);
+
+        panel.add(buttonPanel, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    private JPanel createSettingsPanel() {
+        var panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(new EmptyBorder(10, 10, 10, 10));
+
+        var settingsPanel = new JPanel();
+        settingsPanel.setLayout(new BoxLayout(settingsPanel, BoxLayout.Y_AXIS));
+
+        // Registration section
+        var regPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        regPanel.setBorder(BorderFactory.createTitledBorder("Default Browser"));
+
+        var registerBtn = new JButton(registry.isRegistered() ? "Re-register" : "Register as Default");
+        registerBtn.addActionListener(e -> registerAsDefault());
+
+        var openSettingsBtn = new JButton("Open Windows Settings");
+        openSettingsBtn.addActionListener(e -> registry.openDefaultAppsSettings());
+
+        var statusLabel = new JLabel(registry.isRegistered() ? "Registered" : "Not registered");
+        statusLabel.setForeground(registry.isRegistered() ? new Color(0, 150, 0) : Color.GRAY);
+
+        regPanel.add(registerBtn);
+        regPanel.add(openSettingsBtn);
+        regPanel.add(statusLabel);
+        settingsPanel.add(regPanel);
+
+        // Appearance section
+        var appearancePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        appearancePanel.setBorder(BorderFactory.createTitledBorder("Appearance"));
+
+        systemThemeCheck = new JCheckBox("Use system theme",
+            db.getToggle(Setting.Toggle.SYSTEM_THEME, true));
+        systemThemeCheck.addActionListener(e -> updateThemeSettings());
+
+        darkThemeCheck = new JCheckBox("Dark theme",
+            db.getToggle(Setting.Toggle.DARK_THEME, false));
+        darkThemeCheck.setEnabled(!systemThemeCheck.isSelected());
+        darkThemeCheck.addActionListener(e -> updateThemeSettings());
+
+        appearancePanel.add(systemThemeCheck);
+        appearancePanel.add(darkThemeCheck);
+        settingsPanel.add(appearancePanel);
+
+        // Behavior section
+        var behaviorPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        behaviorPanel.setBorder(BorderFactory.createTitledBorder("Behavior"));
+
+        showIncognitoCheck = new JCheckBox("Show incognito option (Shift+click)",
+            db.getToggle(Setting.Toggle.SHOW_INCOGNITO, true));
+        showIncognitoCheck.addActionListener(e ->
+            db.saveSetting(Setting.toggle(Setting.Toggle.SHOW_INCOGNITO, showIncognitoCheck.isSelected())));
+
+        behaviorPanel.add(showIncognitoCheck);
+        settingsPanel.add(behaviorPanel);
+
+        // Advanced section
+        var advancedPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        advancedPanel.setBorder(BorderFactory.createTitledBorder("Advanced"));
+
+        advancedModeCheck = new JCheckBox("Enable advanced mode", advancedMode);
+        advancedModeCheck.addActionListener(e -> toggleAdvancedMode());
+
+        advancedPanel.add(advancedModeCheck);
+        settingsPanel.add(advancedPanel);
+
+        panel.add(settingsPanel, BorderLayout.NORTH);
+
+        return panel;
+    }
+
+    private void loadData() {
+        loadRules();
+        if (advancedMode) {
+            loadBrowsers();
+        }
+    }
+
+    private void loadRules() {
+        rulesModel.setRowCount(0);
+        for (var rule : db.getAllRules()) {
+            var browserName = db.getBrowser(rule.browserId())
+                .map(Browser::name)
+                .orElse(rule.browserId());
+            rulesModel.addRow(new Object[]{rule.pattern(), browserName, rule.priority()});
+        }
+    }
+
+    private void loadBrowsers() {
+        browsersModel.setRowCount(0);
+        for (var browser : db.getAllBrowsers()) {
+            browsersModel.addRow(new Object[]{
+                browser.enabled(),
+                browser.displayName(),
+                browser.exePath().toString()
+            });
+        }
+    }
+
+    private void addRule() {
+        var browsers = db.getEnabledBrowsers();
+        if (browsers.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                "No browsers detected. Please scan for browsers first.",
+                "No Browsers",
+                JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        var pattern = JOptionPane.showInputDialog(this,
+            "Enter URL pattern (e.g., *.google.com, github.com/*):",
+            "Add Rule",
+            JOptionPane.PLAIN_MESSAGE);
+
+        if (pattern == null || pattern.isBlank()) return;
+
+        var browserNames = browsers.stream().map(Browser::name).toArray(String[]::new);
+        var selected = (String) JOptionPane.showInputDialog(this,
+            "Select browser:",
+            "Add Rule",
+            JOptionPane.PLAIN_MESSAGE,
+            null,
+            browserNames,
+            browserNames[0]);
+
+        if (selected == null) return;
+
+        var browser = browsers.stream()
+            .filter(b -> b.name().equals(selected))
+            .findFirst()
+            .orElse(null);
+
+        if (browser != null) {
+            db.saveRule(new UrlRule(pattern, browser.id()));
+            loadRules();
+        }
+    }
+
+    private void deleteSelectedRule() {
+        var row = rulesTable.getSelectedRow();
+        if (row < 0) return;
+
+        var rules = db.getAllRules();
+        if (row < rules.size()) {
+            db.deleteRule(rules.get(row).id());
+            loadRules();
+        }
+    }
+
+    private void moveRule(int direction) {
+        var row = rulesTable.getSelectedRow();
+        if (row < 0) return;
+
+        var rules = db.getAllRules();
+        var newRow = row + direction;
+        if (newRow < 0 || newRow >= rules.size()) return;
+
+        // Swap priorities
+        var rule1 = rules.get(row);
+        var rule2 = rules.get(newRow);
+
+        db.saveRule(rule1.withPriority(rule2.priority()));
+        db.saveRule(rule2.withPriority(rule1.priority()));
+
+        loadRules();
+        rulesTable.setRowSelectionInterval(newRow, newRow);
+    }
+
+    private void rescanBrowsers() {
+        db.clearBrowsers();
+        var browsers = browserDetector.detectBrowsers();
+        for (var browser : browsers) {
+            db.saveBrowser(browser);
+        }
+        if (advancedMode) {
+            loadBrowsers();
+        }
+        JOptionPane.showMessageDialog(this,
+            "Found " + browsers.size() + " browser(s)",
+            "Scan Complete",
+            JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void detectProfiles() {
+        var browsers = db.getAllBrowsers().stream()
+            .filter(b -> !b.isProfile())
+            .toList();
+
+        int profileCount = 0;
+        for (var browser : browsers) {
+            var profiles = profileDetector.detectProfiles(browser);
+            for (var profile : profiles) {
+                db.saveBrowser(profile);
+                profileCount++;
+            }
+        }
+
+        loadBrowsers();
+        JOptionPane.showMessageDialog(this,
+            "Found " + profileCount + " profile(s)",
+            "Profile Detection Complete",
+            JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void registerAsDefault() {
+        var exePath = getExecutablePath();
+        registry.registerAsUrlHandler(exePath);
+
+        JOptionPane.showMessageDialog(this,
+            "Registered! Now open Windows Settings and set Browser Selector as default for HTTP/HTTPS.",
+            "Registration Complete",
+            JOptionPane.INFORMATION_MESSAGE);
+
+        registry.openDefaultAppsSettings();
+    }
+
+    private Path getExecutablePath() {
+        // Try to find the actual executable path
+        var javaHome = System.getProperty("java.home");
+        var classPath = System.getProperty("java.class.path");
+
+        // If running as packaged app, use the launcher
+        var userDir = System.getProperty("user.dir");
+        var exePath = Path.of(userDir, "BrowserSelector.exe");
+        if (exePath.toFile().exists()) {
+            return exePath;
+        }
+
+        // Fallback to java executable with jar
+        if (classPath.endsWith(".jar")) {
+            return Path.of(javaHome, "bin", "javaw.exe");
+        }
+
+        return Path.of(javaHome, "bin", "java.exe");
+    }
+
+    private void toggleAdvancedMode() {
+        advancedMode = advancedModeCheck.isSelected();
+        db.saveSetting(Setting.toggle(Setting.Toggle.ADVANCED_MODE, advancedMode));
+
+        JOptionPane.showMessageDialog(this,
+            "Please restart the application to apply changes.",
+            "Restart Required",
+            JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void updateThemeSettings() {
+        var useSystem = systemThemeCheck.isSelected();
+        darkThemeCheck.setEnabled(!useSystem);
+
+        db.saveSetting(Setting.toggle(Setting.Toggle.SYSTEM_THEME, useSystem));
+        db.saveSetting(Setting.toggle(Setting.Toggle.DARK_THEME, darkThemeCheck.isSelected()));
+
+        // Apply theme
+        try {
+            if (useSystem) {
+                // System theme detection is platform-specific
+                var isDark = UIManager.getSystemLookAndFeelClassName().toLowerCase().contains("dark");
+                if (isDark) {
+                    FlatDarkLaf.setup();
+                } else {
+                    FlatLightLaf.setup();
+                }
+            } else if (darkThemeCheck.isSelected()) {
+                FlatDarkLaf.setup();
+            } else {
+                FlatLightLaf.setup();
+            }
+            SwingUtilities.updateComponentTreeUI(this);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private String getBrowserIdAtRow(int row) {
+        var browsers = db.getAllBrowsers();
+        if (row >= 0 && row < browsers.size()) {
+            return browsers.get(row).id();
+        }
+        return null;
+    }
+
+    private void centerOnScreen() {
+        setLocationRelativeTo(null);
+    }
+}
