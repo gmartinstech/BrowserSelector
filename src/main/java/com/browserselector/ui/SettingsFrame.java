@@ -16,6 +16,8 @@ import java.util.List;
 
 public class SettingsFrame extends JFrame {
 
+    private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
+
     private final DatabaseService db;
     private final RegistryService registry;
     private final BrowserDetector browserDetector;
@@ -172,22 +174,26 @@ public class SettingsFrame extends JFrame {
         var settingsPanel = new JPanel();
         settingsPanel.setLayout(new BoxLayout(settingsPanel, BoxLayout.Y_AXIS));
 
-        // Registration section
+        // Registration section (Windows only)
         var regPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         regPanel.setBorder(BorderFactory.createTitledBorder("Default Browser"));
 
-        var registerBtn = new JButton(registry.isRegistered() ? "Re-register" : "Register as Default");
-        registerBtn.addActionListener(e -> registerAsDefault());
+        if (IS_WINDOWS) {
+            var registerBtn = new JButton(registry.isRegistered() ? "Re-register" : "Register as Default");
+            registerBtn.addActionListener(e -> registerAsDefault());
 
-        var openSettingsBtn = new JButton("Open Windows Settings");
-        openSettingsBtn.addActionListener(e -> registry.openDefaultAppsSettings());
+            var openSettingsBtn = new JButton("Open Windows Settings");
+            openSettingsBtn.addActionListener(e -> registry.openDefaultAppsSettings());
 
-        var statusLabel = new JLabel(registry.isRegistered() ? "Registered" : "Not registered");
-        statusLabel.setForeground(registry.isRegistered() ? new Color(0, 150, 0) : Color.GRAY);
+            var statusLabel = new JLabel(registry.isRegistered() ? "Registered" : "Not registered");
+            statusLabel.setForeground(registry.isRegistered() ? new Color(0, 150, 0) : Color.GRAY);
 
-        regPanel.add(registerBtn);
-        regPanel.add(openSettingsBtn);
-        regPanel.add(statusLabel);
+            regPanel.add(registerBtn);
+            regPanel.add(openSettingsBtn);
+            regPanel.add(statusLabel);
+        } else {
+            regPanel.add(new JLabel("Windows registration not available (demo mode)"));
+        }
         settingsPanel.add(regPanel);
 
         // Appearance section
@@ -332,6 +338,13 @@ public class SettingsFrame extends JFrame {
     }
 
     private void rescanBrowsers() {
+        if (!IS_WINDOWS) {
+            JOptionPane.showMessageDialog(this,
+                "Browser scanning is only available on Windows",
+                "Not Available",
+                JOptionPane.WARNING_MESSAGE);
+            return;
+        }
         db.clearBrowsers();
         var browsers = browserDetector.detectBrowsers();
         for (var browser : browsers) {

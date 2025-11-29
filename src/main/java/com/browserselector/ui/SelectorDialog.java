@@ -232,6 +232,9 @@ public class SelectorDialog extends JDialog {
 
     private void centerOnScreen() {
         setLocationRelativeTo(null);
+        setAlwaysOnTop(true);
+        toFront();
+        requestFocus();
     }
 
     private String truncateUrl(String url, int maxLen) {
