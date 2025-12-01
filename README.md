@@ -1,5 +1,8 @@
 # Browser Selector
 
+[![Build and Release](https://github.com/gsilva/BrowserSelector/actions/workflows/build.yml/badge.svg)](https://github.com/gsilva/BrowserSelector/actions/workflows/build.yml)
+[![GitHub release](https://img.shields.io/github/v/release/gsilva/BrowserSelector)](https://github.com/gsilva/BrowserSelector/releases/latest)
+
 A Windows 11 browser selector application built with Java 21. When you click a link anywhere on Windows, this app prompts you to choose which browser to use, with support for domain-specific defaults.
 
 ## Features
@@ -24,16 +27,24 @@ mvn clean package
 
 ## Creating Windows EXE
 
-```bash
-jpackage --type app-image \
-  --name "BrowserSelector" \
-  --input target \
-  --main-jar browser-selector.jar \
-  --main-class com.browserselector.Main \
-  --app-version 1.0.0 \
-  --win-console false \
+```powershell
+jpackage --type app-image `
+  --name "BrowserSelector" `
+  --input target `
+  --main-jar browser-selector-1.0.0.jar `
+  --main-class com.browserselector.Main `
+  --java-options "--enable-native-access=ALL-UNNAMED" `
   --dest dist
 ```
+
+## Releases
+
+Releases are automated via GitHub Actions:
+
+1. Go to **Actions** > **Version Bump**
+2. Click **Run workflow**
+3. Select bump type: `patch`, `minor`, or `major`
+4. The workflow will update the version, create a tag, and trigger a release build
 
 ## Usage
 

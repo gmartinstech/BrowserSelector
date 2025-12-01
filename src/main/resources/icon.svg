@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Navy blue squircle background -->
+  <rect x="16" y="16" width="480" height="480" rx="96" ry="96" fill="#1a237e"/>
+
+  <!-- Sailing boat - Golden Yellow -->
+  <g fill="#ffc107">
+    <!-- Main sail (large triangle) -->
+    <path d="M256 80 L256 320 L140 320 Z"/>
+
+    <!-- Secondary sail (smaller triangle) -->
+    <path d="M256 120 L256 280 L340 280 Z"/>
+
+    <!-- Mast -->
+    <rect x="250" y="80" width="12" height="260" fill="#ffb300"/>
+
+    <!-- Boat hull -->
+    <path d="M100 340 L130 400 L382 400 L412 340 Z"/>
+
+    <!-- Hull detail line -->
+    <rect x="120" y="360" width="272" height="8" fill="#ffb300"/>
+
+    <!-- Small flag at top -->
+    <path d="M262 80 L262 60 L290 70 L262 80 Z"/>
+  </g>
+
+  <!-- Water waves -->
+  <g fill="none" stroke="#90caf9" stroke-width="6" stroke-linecap="round">
+    <path d="M80 430 Q120 415 160 430 Q200 445 240 430 Q280 415 320 430 Q360 445 400 430 Q440 415 480 430"/>
+    <path d="M60 460 Q100 445 140 460 Q180 475 220 460 Q260 445 300 460 Q340 475 380 460 Q420 445 460 460"/>
+  </g>
+</svg>

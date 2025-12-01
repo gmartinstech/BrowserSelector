@@ -2,10 +2,12 @@ name: Build and Release
 
 on:
   push:
-    branches: [main]
     tags: ['v*']
   pull_request:
     branches: [main]
+
+env:
+  JAVA_VERSION: '21'
 
 jobs:
   build:
@@ -14,12 +16,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 21
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: ${{ env.JAVA_VERSION }}
           distribution: 'temurin'
           cache: maven
+
+      - name: Extract version from pom.xml
+        id: version
+        run: |
+          $version = (Select-Xml -Path pom.xml -XPath "//*[local-name()='project']/*[local-name()='version']").Node.InnerText
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "Detected version: $version"
 
       - name: Build with Maven
         run: mvn clean package -DskipTests
@@ -28,7 +37,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: browser-selector-jar
-          path: target/browser-selector-*.jar
+          path: target/browser-selector-${{ steps.version.outputs.VERSION }}.jar
           if-no-files-found: error
 
   package:
@@ -39,37 +48,54 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 21
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: ${{ env.JAVA_VERSION }}
           distribution: 'temurin'
           cache: maven
+
+      - name: Extract version from tag
+        id: tag_version
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "Tag version: $version"
+
+      - name: Extract version from pom.xml
+        id: pom_version
+        run: |
+          $version = (Select-Xml -Path pom.xml -XPath "//*[local-name()='project']/*[local-name()='version']").Node.InnerText
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "POM version: $version"
 
       - name: Build with Maven
         run: mvn clean package -DskipTests
 
-      - name: Create Windows EXE with jpackage
+      - name: Create Windows app with jpackage
         run: |
           jpackage --type app-image `
             --name "BrowserSelector" `
             --input target `
-            --main-jar browser-selector-1.0.0.jar `
+            --main-jar browser-selector-${{ steps.pom_version.outputs.VERSION }}.jar `
             --main-class com.browserselector.Main `
-            --app-version ${{ github.ref_name }} `
+            --app-version ${{ steps.tag_version.outputs.VERSION }} `
             --vendor "BrowserSelector" `
-            --win-console `
+            --icon src/main/resources/icon.ico `
+            --java-options "--enable-native-access=ALL-UNNAMED" `
             --dest dist
 
       - name: Create ZIP archive
         run: |
           Compress-Archive -Path dist\BrowserSelector\* -DestinationPath BrowserSelector-${{ github.ref_name }}-windows.zip
 
-      - name: Upload EXE artifact
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: browser-selector-windows
-          path: BrowserSelector-*.zip
+          path: BrowserSelector-${{ github.ref_name }}-windows.zip
+          if-no-files-found: error
 
   release:
     needs: package
@@ -91,12 +117,15 @@ jobs:
           name: browser-selector-windows
           path: artifacts
 
+      - name: List artifacts
+        run: ls -la artifacts/
+
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/*.jar
             artifacts/*.zip
           generate_release_notes: true
           draft: false
-          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}

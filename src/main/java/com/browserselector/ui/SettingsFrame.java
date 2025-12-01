@@ -393,11 +393,19 @@ public class SettingsFrame extends JFrame {
     }
 
     private Path getExecutablePath() {
-        // Try to find the actual executable path
-        var javaHome = System.getProperty("java.home");
-        var classPath = System.getProperty("java.class.path");
+        var javaHome = Path.of(System.getProperty("java.home"));
 
-        // If running as packaged app, use the launcher
+        // For jpackage apps, java.home is inside: AppName/runtime
+        // So the exe is at: AppName/BrowserSelector.exe (parent of runtime)
+        var runtimeParent = javaHome.getParent();
+        if (runtimeParent != null) {
+            var jpackageExe = runtimeParent.resolve("BrowserSelector.exe");
+            if (jpackageExe.toFile().exists()) {
+                return jpackageExe;
+            }
+        }
+
+        // Try current working directory
         var userDir = System.getProperty("user.dir");
         var exePath = Path.of(userDir, "BrowserSelector.exe");
         if (exePath.toFile().exists()) {
@@ -405,11 +413,12 @@ public class SettingsFrame extends JFrame {
         }
 
         // Fallback to java executable with jar
+        var classPath = System.getProperty("java.class.path");
         if (classPath.endsWith(".jar")) {
-            return Path.of(javaHome, "bin", "javaw.exe");
+            return Path.of(javaHome.toString(), "bin", "javaw.exe");
         }
 
-        return Path.of(javaHome, "bin", "java.exe");
+        return Path.of(javaHome.toString(), "bin", "java.exe");
     }
 
     private void toggleAdvancedMode() {

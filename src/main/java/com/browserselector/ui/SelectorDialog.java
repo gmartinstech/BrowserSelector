@@ -20,6 +20,7 @@ public class SelectorDialog extends JDialog {
     private final String domain;
     private final DatabaseService db;
     private final List<Browser> browsers;
+    private final JFrame ownerFrame;
 
     private JList<Browser> browserList;
     private JCheckBox rememberCheckbox;
@@ -27,7 +28,8 @@ public class SelectorDialog extends JDialog {
     private boolean shiftPressed = false;
 
     public SelectorDialog(String url) {
-        super((Frame) null, "Select Browser", true);
+        super(createOwnerFrame(), "Select Browser", true);
+        this.ownerFrame = (JFrame) getOwner();
         this.url = url;
         this.domain = UrlUtils.extractDomain(url);
         this.db = DatabaseService.getInstance();
@@ -36,6 +38,32 @@ public class SelectorDialog extends JDialog {
         initUI();
         setupKeyBindings();
         centerOnScreen();
+
+        // Dispose owner frame when dialog closes
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosed(WindowEvent e) {
+                if (ownerFrame != null) {
+                    ownerFrame.dispose();
+                }
+            }
+        });
+    }
+
+    /**
+     * Creates a hidden owner frame for the dialog.
+     * This is necessary on Windows when the app is launched as a URL handler
+     * without any visible window - a modal dialog with no parent won't show properly.
+     */
+    private static JFrame createOwnerFrame() {
+        JFrame frame = new JFrame("Browser Selector");
+        frame.setUndecorated(true);
+        frame.setSize(0, 0);
+        frame.setLocationRelativeTo(null);
+        // Make the frame appear in taskbar so dialog can show
+        frame.setType(Window.Type.NORMAL);
+        frame.setVisible(true);
+        return frame;
     }
 
     private void initUI() {
@@ -233,8 +261,16 @@ public class SelectorDialog extends JDialog {
     private void centerOnScreen() {
         setLocationRelativeTo(null);
         setAlwaysOnTop(true);
-        toFront();
-        requestFocus();
+
+        // Ensure dialog gets focus when shown
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowOpened(WindowEvent e) {
+                toFront();
+                requestFocus();
+                browserList.requestFocusInWindow();
+            }
+        });
     }
 
     private String truncateUrl(String url, int maxLen) {
