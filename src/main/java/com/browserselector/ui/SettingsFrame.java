@@ -44,9 +44,22 @@ public class SettingsFrame extends JFrame {
         this.profileDetector = new ProfileDetector();
         this.advancedMode = db.getToggle(Setting.Toggle.ADVANCED_MODE, false);
 
+        loadAppIcon();
         initUI();
         loadData();
         centerOnScreen();
+    }
+
+    private void loadAppIcon() {
+        try {
+            var iconUrl = SettingsFrame.class.getResource("/icon.png");
+            if (iconUrl != null) {
+                var icon = new ImageIcon(iconUrl).getImage();
+                setIconImage(icon);
+            }
+        } catch (Exception e) {
+            // Icon loading failed, continue without custom icon
+        }
     }
 
     private void initUI() {

@@ -62,8 +62,22 @@ public class SelectorDialog extends JDialog {
         frame.setLocationRelativeTo(null);
         // Make the frame appear in taskbar so dialog can show
         frame.setType(Window.Type.NORMAL);
+        // Set app icon
+        loadAppIcon(frame);
         frame.setVisible(true);
         return frame;
+    }
+
+    private static void loadAppIcon(Window window) {
+        try {
+            var iconUrl = SelectorDialog.class.getResource("/icon.png");
+            if (iconUrl != null) {
+                var icon = new ImageIcon(iconUrl).getImage();
+                window.setIconImage(icon);
+            }
+        } catch (Exception e) {
+            // Icon loading failed, continue without custom icon
+        }
     }
 
     private void initUI() {
