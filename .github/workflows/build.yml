@@ -101,12 +101,12 @@ jobs:
       - name: Create Windows app with jpackage
         run: |
           jpackage --type app-image `
-            --name "BrowserSelector" `
+            --name "BrowserSwitch" `
             --input target `
             --main-jar browser-selector-${{ steps.pom_version.outputs.VERSION }}.jar `
             --main-class com.browserselector.Main `
             --app-version ${{ steps.tag_version.outputs.VERSION }} `
-            --vendor "BrowserSelector" `
+            --vendor "MartinsTech" `
             --icon src/main/resources/icon.ico `
             --java-options "--enable-native-access=ALL-UNNAMED" `
             --dest dist
@@ -114,7 +114,7 @@ jobs:
       - name: Create ZIP archive
         run: |
           $tag = "${{ steps.tag_name.outputs.TAG }}"
-          Compress-Archive -Path dist\BrowserSelector\* -DestinationPath "BrowserSelector-$tag-windows.zip"
+          Compress-Archive -Path dist\BrowserSwitch\* -DestinationPath "BrowserSwitch-$tag-windows.zip"
 
       - name: Create MSIX package
         run: |
@@ -126,7 +126,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $msixDir
 
           # Copy app files
-          Copy-Item -Recurse "dist\BrowserSelector\*" $msixDir
+          Copy-Item -Recurse "dist\BrowserSwitch\*" $msixDir
 
           # Copy Assets
           New-Item -ItemType Directory -Force -Path "$msixDir\Assets"
@@ -135,8 +135,8 @@ jobs:
           # Update and copy manifest
           $manifest = Get-Content "packaging\msix\AppxManifest.xml" -Raw
           $manifest = $manifest -replace 'VERSION_PLACEHOLDER', $msixVersion
-          $manifest = $manifest -replace 'CN=PUBLISHER_ID', 'CN=BrowserSelector'
-          $manifest = $manifest -replace 'PUBLISHER_NAME', 'BrowserSelector'
+          $manifest = $manifest -replace 'CN=PUBLISHER_ID', 'CN=BrowserSwitch'
+          $manifest = $manifest -replace 'PUBLISHER_NAME', 'MartinsTech'
           $manifest | Set-Content "$msixDir\AppxManifest.xml" -Encoding UTF8
 
           # Find makeappx.exe from Windows SDK
@@ -148,7 +148,7 @@ jobs:
 
           if ($makeappx) {
             Write-Host "Using makeappx from: $($makeappx.FullName)"
-            & $makeappx.FullName pack /d $msixDir /p "BrowserSelector-$tag.msix" /nv
+            & $makeappx.FullName pack /d $msixDir /p "BrowserSwitch-$tag.msix" /nv
           } else {
             Write-Host "makeappx.exe not found, skipping MSIX creation"
           }
@@ -157,14 +157,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: browser-selector-windows
-          path: BrowserSelector-*.zip
+          path: BrowserSwitch-*.zip
           if-no-files-found: error
 
       - name: Upload MSIX artifact
         uses: actions/upload-artifact@v4
         with:
           name: browser-selector-msix
-          path: BrowserSelector-*.msix
+          path: BrowserSwitch-*.msix
           if-no-files-found: warn
 
   release:

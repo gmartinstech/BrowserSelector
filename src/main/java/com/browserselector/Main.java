@@ -46,30 +46,30 @@ public class Main {
             } else {
                 // URL was passed - check for matching rule or show selector
                 var url = args[0];
-                System.out.println("[BrowserSelector] Received URL: " + url);
+                System.out.println("[BrowserSwitch] Received URL: " + url);
 
                 // Validate URL
                 if (!UrlUtils.isValidUrl(url)) {
                     url = UrlUtils.normalizeUrl(url);
-                    System.out.println("[BrowserSelector] Normalized URL: " + url);
+                    System.out.println("[BrowserSwitch] Normalized URL: " + url);
                 }
 
                 // Check for existing rule
                 var matchingRule = db.findMatchingRule(url);
                 if (matchingRule.isPresent()) {
                     var rule = matchingRule.get();
-                    System.out.println("[BrowserSelector] Found matching rule: " + rule.pattern() + " -> " + rule.browserId());
+                    System.out.println("[BrowserSwitch] Found matching rule: " + rule.pattern() + " -> " + rule.browserId());
                     var browser = db.getBrowser(rule.browserId());
 
                     if (browser.isPresent()) {
-                        System.out.println("[BrowserSelector] Launching: " + browser.get().name());
+                        System.out.println("[BrowserSwitch] Launching: " + browser.get().name());
                         launchBrowser(browser.get(), url);
                         return;
                     }
                 }
 
                 // No matching rule - show selector
-                System.out.println("[BrowserSelector] No matching rule, showing selector dialog...");
+                System.out.println("[BrowserSwitch] No matching rule, showing selector dialog...");
                 var dialog = new SelectorDialog(url);
                 dialog.setVisible(true);
             }

@@ -7,7 +7,7 @@ import java.nio.file.Path;
 
 public final class RegistryService {
 
-    private static final String APP_NAME = "BrowserSelector";
+    private static final String APP_NAME = "BrowserSwitch";
     private static final String APP_DESCRIPTION = "Choose which browser to open links with";
 
     private static final WinReg.HKEY HKCU = WinReg.HKEY_CURRENT_USER;

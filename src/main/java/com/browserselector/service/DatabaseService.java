@@ -22,7 +22,7 @@ public final class DatabaseService {
     private DatabaseService() {
         var appData = System.getenv("APPDATA");
         var dbPath = appData != null
-            ? Paths.get(appData, "BrowserSelector", DB_NAME)
+            ? Paths.get(appData, "BrowserSwitch", DB_NAME)
             : Paths.get(System.getProperty("user.home"), ".browserselector", DB_NAME);
 
         dbPath.getParent().toFile().mkdirs();

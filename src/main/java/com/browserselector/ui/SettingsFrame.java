@@ -37,7 +37,7 @@ public class SettingsFrame extends JFrame {
     private boolean advancedMode;
 
     public SettingsFrame() {
-        super("Browser Selector - Settings");
+        super("Browser Switch - Settings");
         this.db = DatabaseService.getInstance();
         this.registry = new RegistryService();
         this.browserDetector = new BrowserDetector();
@@ -409,10 +409,10 @@ public class SettingsFrame extends JFrame {
         var javaHome = Path.of(System.getProperty("java.home"));
 
         // For jpackage apps, java.home is inside: AppName/runtime
-        // So the exe is at: AppName/BrowserSelector.exe (parent of runtime)
+        // So the exe is at: AppName/BrowserSwitch.exe (parent of runtime)
         var runtimeParent = javaHome.getParent();
         if (runtimeParent != null) {
-            var jpackageExe = runtimeParent.resolve("BrowserSelector.exe");
+            var jpackageExe = runtimeParent.resolve("BrowserSwitch.exe");
             if (jpackageExe.toFile().exists()) {
                 return jpackageExe;
             }
@@ -420,7 +420,7 @@ public class SettingsFrame extends JFrame {
 
         // Try current working directory
         var userDir = System.getProperty("user.dir");
-        var exePath = Path.of(userDir, "BrowserSelector.exe");
+        var exePath = Path.of(userDir, "BrowserSwitch.exe");
         if (exePath.toFile().exists()) {
             return exePath;
         }

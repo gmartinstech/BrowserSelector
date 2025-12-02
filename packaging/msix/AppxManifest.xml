@@ -8,13 +8,13 @@
   IgnorableNamespaces="uap uap3 desktop rescap">
 
   <Identity
-    Name="BrowserSelector"
+    Name="BrowserSwitch"
     Publisher="CN=PUBLISHER_ID"
     Version="VERSION_PLACEHOLDER"
     ProcessorArchitecture="x64" />
 
   <Properties>
-    <DisplayName>Browser Selector</DisplayName>
+    <DisplayName>Browser Switch</DisplayName>
     <PublisherDisplayName>PUBLISHER_NAME</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
     <Description>Choose which browser to open links with. Supports domain-based rules and browser profiles.</Description>
@@ -29,9 +29,9 @@
   </Resources>
 
   <Applications>
-    <Application Id="BrowserSelector" Executable="BrowserSelector.exe" EntryPoint="Windows.FullTrustApplication">
+    <Application Id="BrowserSwitch" Executable="BrowserSwitch.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="Browser Selector"
+        DisplayName="Browser Switch"
         Description="Choose which browser to open links with"
         BackgroundColor="#1a237e"
         Square150x150Logo="Assets\Square150x150Logo.png"
@@ -49,7 +49,7 @@
       <Extensions>
         <uap3:Extension Category="windows.appExecutionAlias">
           <uap3:AppExecutionAlias>
-            <desktop:ExecutionAlias Alias="BrowserSelector.exe" />
+            <desktop:ExecutionAlias Alias="BrowserSwitch.exe" />
           </uap3:AppExecutionAlias>
         </uap3:Extension>
 

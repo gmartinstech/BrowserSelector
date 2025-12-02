@@ -6,10 +6,10 @@
 
     <groupId>com.browserselector</groupId>
     <artifactId>browser-selector</artifactId>
-    <version>1.4.0</version>
+    <version>1.5.0</version>
     <packaging>jar</packaging>
 
-    <name>Browser Selector</name>
+    <name>Browser Switch</name>
     <description>Windows browser selector with domain-based rules</description>
 
     <properties>
