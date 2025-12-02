@@ -1,7 +1,7 @@
 # Browser Selector
 
-[![Build and Release](https://github.com/gsilva/BrowserSelector/actions/workflows/build.yml/badge.svg)](https://github.com/gsilva/BrowserSelector/actions/workflows/build.yml)
-[![GitHub release](https://img.shields.io/github/v/release/gsilva/BrowserSelector)](https://github.com/gsilva/BrowserSelector/releases/latest)
+[![Build and Release](https://github.com/gmartinstech/BrowserSelector/actions/workflows/build.yml/badge.svg)](https://github.com/gmartinstech/BrowserSelector/actions/workflows/build.yml)
+[![GitHub release](https://img.shields.io/github/v/release/gmartinstech/BrowserSelector)](https://github.com/gmartinstech/BrowserSelector/releases/latest)
 
 A Windows 11 browser selector application built with Java 21. When you click a link anywhere on Windows, this app prompts you to choose which browser to use, with support for domain-specific defaults.
 
