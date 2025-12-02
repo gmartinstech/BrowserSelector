@@ -21,10 +21,36 @@ public final class BrowserDetector {
         WinReg.HKEY_CURRENT_USER
     };
 
+    // Known browsers that might be installed via Microsoft Store or other non-registry methods
+    private record KnownBrowser(String id, String name, String[] possiblePaths) {}
+
+    private static final KnownBrowser[] KNOWN_BROWSERS = {
+        new KnownBrowser("firefox", "Firefox", new String[] {
+            System.getenv("LOCALAPPDATA") + "\\Microsoft\\WindowsApps\\firefox.exe",
+            "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+            "C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe"
+        }),
+        new KnownBrowser("brave", "Brave", new String[] {
+            System.getenv("LOCALAPPDATA") + "\\Microsoft\\WindowsApps\\brave.exe",
+            System.getenv("LOCALAPPDATA") + "\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+            "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
+        }),
+        new KnownBrowser("opera", "Opera", new String[] {
+            System.getenv("LOCALAPPDATA") + "\\Microsoft\\WindowsApps\\opera.exe",
+            System.getenv("LOCALAPPDATA") + "\\Programs\\Opera\\launcher.exe",
+            "C:\\Program Files\\Opera\\launcher.exe"
+        }),
+        new KnownBrowser("vivaldi", "Vivaldi", new String[] {
+            System.getenv("LOCALAPPDATA") + "\\Vivaldi\\Application\\vivaldi.exe",
+            "C:\\Program Files\\Vivaldi\\Application\\vivaldi.exe"
+        })
+    };
+
     public List<Browser> detectBrowsers() {
         var browsers = new ArrayList<Browser>();
         var seenIds = new java.util.HashSet<String>();
 
+        // First, detect browsers from registry (traditional installation)
         for (var hkey : HKEYS) {
             for (var registryPath : REGISTRY_PATHS) {
                 try {
@@ -46,6 +72,34 @@ public final class BrowserDetector {
                     }
                 } catch (Exception e) {
                     // Registry path doesn't exist or access denied
+                }
+            }
+        }
+
+        // Then, detect known browsers from fallback paths (Microsoft Store, user installations)
+        for (var knownBrowser : KNOWN_BROWSERS) {
+            if (seenIds.contains(knownBrowser.id())) {
+                continue; // Already found via registry
+            }
+
+            for (var pathStr : knownBrowser.possiblePaths()) {
+                if (pathStr == null) continue;
+                var path = Path.of(pathStr);
+                if (Files.exists(path)) {
+                    var browser = new Browser(
+                        knownBrowser.id(),
+                        knownBrowser.name(),
+                        path,
+                        path, // Use exe as icon source
+                        null,
+                        detectIncognitoArg(knownBrowser.name()),
+                        false,
+                        null,
+                        true
+                    );
+                    browsers.add(browser);
+                    seenIds.add(knownBrowser.id());
+                    break; // Found this browser, move to next
                 }
             }
         }
