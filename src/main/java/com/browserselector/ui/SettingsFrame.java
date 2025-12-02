@@ -166,14 +166,22 @@ public class SettingsFrame extends JFrame {
         // Buttons
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
+        var addBrowserBtn = new JButton("Add Browser");
+        addBrowserBtn.addActionListener(e -> addBrowserManually());
+
         var rescanBtn = new JButton("Re-scan Browsers");
         rescanBtn.addActionListener(e -> rescanBrowsers());
 
         var detectProfilesBtn = new JButton("Detect Profiles");
         detectProfilesBtn.addActionListener(e -> detectProfiles());
 
+        var deleteBtn = new JButton("Delete");
+        deleteBtn.addActionListener(e -> deleteSelectedBrowser());
+
+        buttonPanel.add(addBrowserBtn);
         buttonPanel.add(rescanBtn);
         buttonPanel.add(detectProfilesBtn);
+        buttonPanel.add(deleteBtn);
 
         panel.add(buttonPanel, BorderLayout.SOUTH);
 
@@ -391,6 +399,121 @@ public class SettingsFrame extends JFrame {
             "Found " + profileCount + " profile(s)",
             "Profile Detection Complete",
             JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void addBrowserManually() {
+        // Create a panel for the dialog
+        var panel = new JPanel(new GridLayout(0, 1, 5, 5));
+
+        var nameField = new JTextField(20);
+        var pathField = new JTextField(30);
+        var browseBtn = new JButton("Browse...");
+
+        var namePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        namePanel.add(new JLabel("Browser Name:"));
+        namePanel.add(nameField);
+
+        var pathPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        pathPanel.add(new JLabel("Executable Path:"));
+        pathPanel.add(pathField);
+        pathPanel.add(browseBtn);
+
+        browseBtn.addActionListener(e -> {
+            var fileChooser = new JFileChooser();
+            fileChooser.setDialogTitle("Select Browser Executable");
+            fileChooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                "Executable Files (*.exe)", "exe"));
+
+            if (fileChooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                pathField.setText(fileChooser.getSelectedFile().getAbsolutePath());
+                // Auto-fill name if empty
+                if (nameField.getText().isBlank()) {
+                    var fileName = fileChooser.getSelectedFile().getName();
+                    var name = fileName.replace(".exe", "");
+                    // Capitalize first letter
+                    if (!name.isEmpty()) {
+                        name = Character.toUpperCase(name.charAt(0)) + name.substring(1);
+                    }
+                    nameField.setText(name);
+                }
+            }
+        });
+
+        panel.add(namePanel);
+        panel.add(pathPanel);
+
+        var result = JOptionPane.showConfirmDialog(this, panel, "Add Browser",
+            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
+            var name = nameField.getText().trim();
+            var pathStr = pathField.getText().trim();
+
+            if (name.isEmpty() || pathStr.isEmpty()) {
+                JOptionPane.showMessageDialog(this,
+                    "Please provide both name and path.",
+                    "Invalid Input",
+                    JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            var path = Path.of(pathStr);
+            if (!path.toFile().exists()) {
+                JOptionPane.showMessageDialog(this,
+                    "The specified file does not exist.",
+                    "File Not Found",
+                    JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            // Generate ID from name
+            var id = name.toLowerCase().replaceAll("[^a-z0-9]", "-");
+
+            // Detect incognito argument based on name
+            String incognitoArg = "--incognito";
+            var lowerName = name.toLowerCase();
+            if (lowerName.contains("firefox")) {
+                incognitoArg = "-private-window";
+            } else if (lowerName.contains("opera")) {
+                incognitoArg = "--private";
+            }
+
+            var browser = new Browser(id, name, path, path, null, incognitoArg, false, null, true);
+            db.saveBrowser(browser);
+            loadBrowsers();
+
+            JOptionPane.showMessageDialog(this,
+                "Browser '" + name + "' added successfully.",
+                "Browser Added",
+                JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    private void deleteSelectedBrowser() {
+        var row = browsersTable.getSelectedRow();
+        if (row < 0) {
+            JOptionPane.showMessageDialog(this,
+                "Please select a browser to delete.",
+                "No Selection",
+                JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        var browserId = getBrowserIdAtRow(row);
+        if (browserId != null) {
+            var browser = db.getBrowser(browserId);
+            var name = browser.map(Browser::name).orElse(browserId);
+
+            var confirm = JOptionPane.showConfirmDialog(this,
+                "Are you sure you want to delete '" + name + "'?",
+                "Confirm Delete",
+                JOptionPane.YES_NO_OPTION);
+
+            if (confirm == JOptionPane.YES_OPTION) {
+                db.deleteBrowser(browserId);
+                loadBrowsers();
+            }
+        }
     }
 
     private void registerAsDefault() {
