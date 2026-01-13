@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BrowserSelector</string>
+
+    <!-- Browser Selector Dialog -->
+    <string name="open_with">Open with</string>
+    <string name="remember_choice">Remember this choice</string>
+    <string name="pattern_hint">URL Pattern (e.g., *.google.com)</string>
+    <string name="no_browsers_found">No browsers found</string>
+    <string name="browser_icon">Browser icon</string>
+
+    <!-- Settings -->
+    <string name="settings">Settings</string>
+    <string name="tab_rules">Rules</string>
+    <string name="tab_browsers">Browsers</string>
+    <string name="tab_settings">Settings</string>
+
+    <!-- Rules Tab -->
+    <string name="no_rules">No URL rules defined.\nTap + to add one.</string>
+    <string name="add_rule">Add Rule</string>
+    <string name="delete_rule">Delete Rule</string>
+    <string name="delete_rule_confirm">Delete rule for \"%1$s\"?</string>
+    <string name="rule_saved">Rule saved</string>
+
+    <!-- Browsers Tab -->
+    <string name="rescan_browsers">Rescan Browsers</string>
+    <string name="browsers_refreshed">Browsers refreshed</string>
+
+    <!-- Settings Tab -->
+    <string name="default_browser_section">Default Browser</string>
+    <string name="default_browser_description">To use BrowserSelector for all links, set it as your default browser in Android settings.</string>
+    <string name="open_default_apps">Open Default Apps Settings</string>
+    <string name="about_section">About</string>
+    <string name="app_description">BrowserSelector lets you choose which browser to use for each link. Create rules to automatically open specific URLs in your preferred browser.</string>
+    <string name="version_info">Version 1.0.0</string>
+
+    <!-- Add Rule -->
+    <string name="select_browser">Select Browser</string>
+    <string name="pattern_helper">Use * to match any characters, e.g., *.google.com</string>
+
+    <!-- Buttons -->
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="delete">Delete</string>
+
+    <!-- Errors -->
+    <string name="error_browser_not_found">Browser %1$s not found</string>
+    <string name="error_opening_browser">Error opening browser</string>
+    <string name="error_opening_settings">Could not open settings</string>
+    <string name="error_pattern_empty">Pattern cannot be empty</string>
+    <string name="error_pattern_invalid">Invalid pattern</string>
+    <string name="error_select_browser">Please select a browser</string>
+</resources>
