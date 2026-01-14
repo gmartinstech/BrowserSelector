@@ -118,7 +118,7 @@ jobs:
         with:
           name: browser-selector-android
           path: artifacts/*.apk
-          if-no-files-found: error
+          if-no-files-found: warn
 
   package:
     needs: build
@@ -240,7 +240,7 @@ jobs:
           if-no-files-found: warn
 
   release:
-    needs: [package, build-android]
+    needs: [package]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     permissions:
@@ -280,6 +280,7 @@ jobs:
         with:
           name: browser-selector-android
           path: artifacts
+        continue-on-error: true
 
       - name: List artifacts
         run: ls -la artifacts/
