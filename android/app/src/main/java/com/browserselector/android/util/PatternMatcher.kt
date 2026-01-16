@@ -20,10 +20,33 @@ object PatternMatcher {
 
         val normalizedUrl = normalizeUrl(url)
         val regex = patternToRegex(pattern)
+        val patternLower = pattern.lowercase()
+        val domain = extractDomain(url)?.lowercase() ?: ""
 
         return try {
             val compiledPattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE)
-            compiledPattern.matcher(normalizedUrl).matches()
+            if (compiledPattern.matcher(normalizedUrl).matches()) {
+                return true
+            }
+
+            // Special handling for plain domain patterns (no wildcards):
+            // A pattern like "google.com" should match both "google.com" and "www.google.com"
+            if (!pattern.contains("*") && !pattern.contains("?") && !pattern.contains("/")) {
+                if (domain.endsWith(".$patternLower")) {
+                    return true
+                }
+            }
+
+            // Special handling for *.domain patterns: also match the bare domain
+            // Pattern "*.google.com" should also match "google.com"
+            if (patternLower.startsWith("*.")) {
+                val baseDomain = patternLower.substring(2)
+                if (domain == baseDomain) {
+                    return true
+                }
+            }
+
+            false
         } catch (e: Exception) {
             false
         }
@@ -119,10 +142,11 @@ object PatternMatcher {
 
     /**
      * Converts a domain to a wildcard pattern.
+     * Just uses the domain itself - the matches() method will handle
+     * matching both the exact domain and subdomains.
      */
     fun domainToPattern(domain: String): String {
-        val cleanDomain = domain.removePrefix("www.").trim()
-        return "*.$cleanDomain"
+        return domain.removePrefix("www.").trim()
     }
 
     /**

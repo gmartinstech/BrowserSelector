@@ -256,12 +256,27 @@ public final class DatabaseService {
     }
 
     private UrlRule ruleFromResultSet(ResultSet rs) throws SQLException {
+        var createdAtStr = rs.getString("created_at");
+        Instant createdAt;
+        try {
+            // Try ISO-8601 format first (e.g., "2025-01-15T10:30:00Z")
+            if (createdAtStr.endsWith("Z") || createdAtStr.contains("+") || createdAtStr.contains("T")) {
+                createdAt = Instant.parse(createdAtStr.endsWith("Z") ? createdAtStr : createdAtStr + "Z");
+            } else {
+                // SQLite CURRENT_TIMESTAMP format: "YYYY-MM-DD HH:MM:SS"
+                var formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                    .withZone(java.time.ZoneOffset.UTC);
+                createdAt = Instant.from(formatter.parse(createdAtStr));
+            }
+        } catch (Exception e) {
+            createdAt = Instant.now();
+        }
         return new UrlRule(
             rs.getInt("id"),
             rs.getString("pattern"),
             rs.getString("browser_id"),
             rs.getInt("priority"),
-            Instant.parse(rs.getString("created_at") + "Z")
+            createdAt
         );
     }
 

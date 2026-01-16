@@ -12,12 +12,36 @@ public final class PatternMatcher {
         var domain = UrlUtils.extractDomain(url);
         var path = UrlUtils.extractPath(url);
         var fullMatch = domain + path;
+        var patternLower = pattern.toLowerCase();
 
         // Convert wildcard pattern to regex
-        var regex = patternToRegex(pattern.toLowerCase());
+        var regex = patternToRegex(patternLower);
 
-        return Pattern.matches(regex, fullMatch.toLowerCase()) ||
-               Pattern.matches(regex, domain.toLowerCase());
+        // Check if pattern matches the full URL (domain + path) or just the domain
+        if (Pattern.matches(regex, fullMatch.toLowerCase()) ||
+            Pattern.matches(regex, domain.toLowerCase())) {
+            return true;
+        }
+
+        // Special handling for plain domain patterns (no wildcards):
+        // A pattern like "google.com" should match both "google.com" and "www.google.com"
+        if (!pattern.contains("*") && !pattern.contains("?") && !pattern.contains("/")) {
+            // Check if domain ends with the pattern (subdomain match)
+            if (domain.toLowerCase().endsWith("." + patternLower)) {
+                return true;
+            }
+        }
+
+        // Special handling for *.domain patterns: also match the bare domain
+        // Pattern "*.google.com" should also match "google.com"
+        if (patternLower.startsWith("*.")) {
+            var baseDomain = patternLower.substring(2);
+            if (domain.toLowerCase().equals(baseDomain)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static String patternToRegex(String pattern) {
@@ -75,7 +99,8 @@ public final class PatternMatcher {
             return domain;
         }
 
-        // Create a pattern that matches the domain and all subdomains
-        return "*." + domain;
+        // Just use the domain itself - the matches() method will handle
+        // matching both the exact domain and subdomains
+        return domain;
     }
 }
