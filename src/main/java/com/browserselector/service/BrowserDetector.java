@@ -4,12 +4,20 @@ import com.browserselector.model.Browser;
 import com.sun.jna.platform.win32.Advapi32Util;
 import com.sun.jna.platform.win32.WinReg;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public final class BrowserDetector {
+
+    private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
+    private static final boolean IS_LINUX = System.getProperty("os.name").toLowerCase().contains("linux");
 
     private static final String[] REGISTRY_PATHS = {
         "SOFTWARE\\Clients\\StartMenuInternet",
@@ -19,6 +27,16 @@ public final class BrowserDetector {
     private static final WinReg.HKEY[] HKEYS = {
         WinReg.HKEY_LOCAL_MACHINE,
         WinReg.HKEY_CURRENT_USER
+    };
+
+    // Linux desktop file locations
+    private static final String[] LINUX_DESKTOP_PATHS = {
+        "/usr/share/applications",
+        "/usr/local/share/applications",
+        System.getProperty("user.home") + "/.local/share/applications",
+        "/var/lib/flatpak/exports/share/applications",
+        System.getProperty("user.home") + "/.local/share/flatpak/exports/share/applications",
+        "/var/lib/snapd/desktop/applications"
     };
 
     // Known browsers that might be installed via Microsoft Store or other non-registry methods
@@ -47,6 +65,245 @@ public final class BrowserDetector {
     };
 
     public List<Browser> detectBrowsers() {
+        if (IS_LINUX) {
+            return detectLinuxBrowsers();
+        }
+        return detectWindowsBrowsers();
+    }
+
+    private List<Browser> detectLinuxBrowsers() {
+        var browsers = new ArrayList<Browser>();
+        var seenIds = new java.util.HashSet<String>();
+
+        for (var desktopPath : LINUX_DESKTOP_PATHS) {
+            var dir = Path.of(desktopPath);
+            if (!Files.exists(dir) || !Files.isDirectory(dir)) {
+                continue;
+            }
+
+            try (var stream = Files.list(dir)) {
+                stream.filter(p -> p.toString().endsWith(".desktop"))
+                    .forEach(desktopFile -> {
+                        try {
+                            var browser = parseDesktopFile(desktopFile);
+                            if (browser != null && !seenIds.contains(browser.id())) {
+                                browsers.add(browser);
+                                seenIds.add(browser.id());
+                            }
+                        } catch (Exception e) {
+                            // Skip this desktop file
+                        }
+                    });
+            } catch (IOException e) {
+                // Skip this directory
+            }
+        }
+
+        return browsers;
+    }
+
+    private Browser parseDesktopFile(Path desktopFile) throws IOException {
+        var properties = new HashMap<String, String>();
+        var inDesktopEntry = false;
+        var inAction = false;
+        String privateExec = null;
+
+        for (var line : Files.readAllLines(desktopFile)) {
+            line = line.trim();
+            if (line.isEmpty() || line.startsWith("#")) continue;
+
+            if (line.startsWith("[")) {
+                inDesktopEntry = line.equals("[Desktop Entry]");
+                inAction = line.contains("private") || line.contains("incognito");
+                continue;
+            }
+
+            if (inAction && line.startsWith("Exec=")) {
+                privateExec = line.substring(5).trim();
+            }
+
+            if (!inDesktopEntry) continue;
+
+            var idx = line.indexOf('=');
+            if (idx > 0) {
+                var key = line.substring(0, idx).trim();
+                var value = line.substring(idx + 1).trim();
+                // Only store the first value (non-localized)
+                if (!key.contains("[")) {
+                    properties.putIfAbsent(key, value);
+                }
+            }
+        }
+
+        // Check if this is a browser (handles HTTP/HTTPS)
+        var mimeType = properties.get("MimeType");
+        if (mimeType == null || !mimeType.contains("x-scheme-handler/http")) {
+            return null;
+        }
+
+        // Skip non-application types
+        var type = properties.get("Type");
+        if (type == null || !type.equals("Application")) {
+            return null;
+        }
+
+        // Skip hidden or no-display entries
+        if ("true".equalsIgnoreCase(properties.get("Hidden")) ||
+            "true".equalsIgnoreCase(properties.get("NoDisplay"))) {
+            return null;
+        }
+
+        var name = properties.get("Name");
+        var exec = properties.get("Exec");
+        var icon = properties.get("Icon");
+
+        if (name == null || exec == null) {
+            return null;
+        }
+
+        // Parse executable path from Exec (remove %u, %U, %f, %F, etc.)
+        var exePath = parseLinuxExec(exec);
+        if (exePath == null) {
+            return null;
+        }
+
+        // Generate ID from desktop file name
+        var fileName = desktopFile.getFileName().toString();
+        var id = fileName.replace(".desktop", "").toLowerCase().replaceAll("[^a-z0-9.-]", "-");
+
+        // Detect incognito argument from private action or browser name
+        var incognitoArg = detectLinuxIncognitoArg(name, privateExec);
+
+        // Resolve icon path
+        Path iconPath = resolveLinuxIcon(icon);
+
+        return new Browser(
+            id,
+            name,
+            exePath,
+            iconPath,
+            null,
+            incognitoArg,
+            false,
+            null,
+            true
+        );
+    }
+
+    private Path parseLinuxExec(String exec) {
+        if (exec == null || exec.isBlank()) {
+            return null;
+        }
+
+        // Remove field codes (%u, %U, %f, %F, etc.)
+        var cleaned = exec.replaceAll("%[a-zA-Z]", "").trim();
+
+        // Handle env vars and command prefixes
+        var parts = cleaned.split("\\s+");
+        for (var part : parts) {
+            if (part.startsWith("/") || part.startsWith("~")) {
+                var path = part.replace("~", System.getProperty("user.home"));
+                if (Files.exists(Path.of(path))) {
+                    return Path.of(path);
+                }
+            }
+            // Try to find in PATH
+            var resolved = findInPath(part);
+            if (resolved != null) {
+                return resolved;
+            }
+        }
+
+        return null;
+    }
+
+    private Path findInPath(String command) {
+        if (command == null || command.isBlank()) {
+            return null;
+        }
+
+        // If already absolute path
+        if (command.startsWith("/")) {
+            var path = Path.of(command);
+            return Files.exists(path) ? path : null;
+        }
+
+        // Search in PATH
+        var pathEnv = System.getenv("PATH");
+        if (pathEnv != null) {
+            for (var dir : pathEnv.split(":")) {
+                var path = Path.of(dir, command);
+                if (Files.exists(path) && Files.isExecutable(path)) {
+                    return path;
+                }
+            }
+        }
+
+        // Common locations
+        var commonPaths = new String[] {"/usr/bin/", "/usr/local/bin/", "/bin/", "/snap/bin/"};
+        for (var prefix : commonPaths) {
+            var path = Path.of(prefix + command);
+            if (Files.exists(path)) {
+                return path;
+            }
+        }
+
+        return null;
+    }
+
+    private Path resolveLinuxIcon(String icon) {
+        if (icon == null || icon.isBlank()) {
+            return null;
+        }
+
+        // If it's an absolute path
+        if (icon.startsWith("/")) {
+            var path = Path.of(icon);
+            return Files.exists(path) ? path : null;
+        }
+
+        // Try to find icon in standard locations
+        var iconDirs = new String[] {
+            "/usr/share/icons/hicolor/256x256/apps",
+            "/usr/share/icons/hicolor/128x128/apps",
+            "/usr/share/icons/hicolor/64x64/apps",
+            "/usr/share/icons/hicolor/48x48/apps",
+            "/usr/share/icons/hicolor/scalable/apps",
+            "/usr/share/pixmaps"
+        };
+
+        var extensions = new String[] {"", ".png", ".svg", ".xpm"};
+
+        for (var dir : iconDirs) {
+            for (var ext : extensions) {
+                var path = Path.of(dir, icon + ext);
+                if (Files.exists(path)) {
+                    return path;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private String detectLinuxIncognitoArg(String browserName, String privateExec) {
+        // If we found a private/incognito action, extract the argument
+        if (privateExec != null) {
+            if (privateExec.contains("--incognito")) return "--incognito";
+            if (privateExec.contains("--private-window")) return "--private-window";
+            if (privateExec.contains("--private")) return "--private";
+            if (privateExec.contains("-private-window")) return "-private-window";
+        }
+
+        // Fallback based on browser name
+        var lower = browserName.toLowerCase();
+        if (lower.contains("firefox")) return "-private-window";
+        if (lower.contains("opera")) return "--private";
+        if (lower.contains("epiphany") || lower.contains("gnome web")) return "--incognito-mode";
+        return "--incognito"; // Chrome, Edge, Brave, Chromium, etc.
+    }
+
+    private List<Browser> detectWindowsBrowsers() {
         var browsers = new ArrayList<Browser>();
         var seenIds = new java.util.HashSet<String>();
 
@@ -61,7 +318,7 @@ public final class BrowserDetector {
                     var browserKeys = Advapi32Util.registryGetKeys(hkey, registryPath);
                     for (var browserKey : browserKeys) {
                         try {
-                            var browser = readBrowser(hkey, registryPath + "\\" + browserKey);
+                            var browser = readWindowsBrowser(hkey, registryPath + "\\" + browserKey);
                             if (browser != null && !seenIds.contains(browser.id())) {
                                 browsers.add(browser);
                                 seenIds.add(browser.id());
@@ -92,7 +349,7 @@ public final class BrowserDetector {
                         path,
                         path, // Use exe as icon source
                         null,
-                        detectIncognitoArg(knownBrowser.name()),
+                        detectWindowsIncognitoArg(knownBrowser.name()),
                         false,
                         null,
                         true
@@ -107,7 +364,7 @@ public final class BrowserDetector {
         return browsers;
     }
 
-    private Browser readBrowser(WinReg.HKEY hkey, String keyPath) {
+    private Browser readWindowsBrowser(WinReg.HKEY hkey, String keyPath) {
         try {
             // Read executable path
             var commandPath = keyPath + "\\shell\\open\\command";
@@ -153,7 +410,7 @@ public final class BrowserDetector {
                 exePath,
                 iconPath,
                 null,
-                detectIncognitoArg(name),
+                detectWindowsIncognitoArg(name),
                 false,
                 null,
                 true
@@ -225,7 +482,7 @@ public final class BrowserDetector {
         return fileName;
     }
 
-    private String detectIncognitoArg(String browserName) {
+    private String detectWindowsIncognitoArg(String browserName) {
         var lower = browserName.toLowerCase();
         if (lower.contains("firefox")) return "-private-window";
         if (lower.contains("opera")) return "--private";

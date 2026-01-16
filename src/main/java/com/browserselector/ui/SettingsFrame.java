@@ -198,6 +198,7 @@ public class SettingsFrame extends JFrame {
         // Registration section (Windows only)
         var regPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         regPanel.setBorder(BorderFactory.createTitledBorder("Default Browser"));
+        regPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         if (IS_WINDOWS) {
             var registerBtn = new JButton(registry.isRegistered() ? "Re-register" : "Register as Default");
@@ -213,13 +214,15 @@ public class SettingsFrame extends JFrame {
             regPanel.add(openSettingsBtn);
             regPanel.add(statusLabel);
         } else {
-            regPanel.add(new JLabel("Windows registration not available (demo mode)"));
+            regPanel.add(new JLabel("Linux mode - browsers detected from system"));
         }
+        regPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, regPanel.getPreferredSize().height + 20));
         settingsPanel.add(regPanel);
 
         // Appearance section
         var appearancePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         appearancePanel.setBorder(BorderFactory.createTitledBorder("Appearance"));
+        appearancePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         systemThemeCheck = new JCheckBox("Use system theme",
             db.getToggle(Setting.Toggle.SYSTEM_THEME, true));
@@ -232,11 +235,13 @@ public class SettingsFrame extends JFrame {
 
         appearancePanel.add(systemThemeCheck);
         appearancePanel.add(darkThemeCheck);
+        appearancePanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, appearancePanel.getPreferredSize().height + 20));
         settingsPanel.add(appearancePanel);
 
         // Behavior section
         var behaviorPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         behaviorPanel.setBorder(BorderFactory.createTitledBorder("Behavior"));
+        behaviorPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         showIncognitoCheck = new JCheckBox("Show incognito option (Shift+click)",
             db.getToggle(Setting.Toggle.SHOW_INCOGNITO, true));
@@ -244,16 +249,19 @@ public class SettingsFrame extends JFrame {
             db.saveSetting(Setting.toggle(Setting.Toggle.SHOW_INCOGNITO, showIncognitoCheck.isSelected())));
 
         behaviorPanel.add(showIncognitoCheck);
+        behaviorPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, behaviorPanel.getPreferredSize().height + 20));
         settingsPanel.add(behaviorPanel);
 
         // Advanced section
         var advancedPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         advancedPanel.setBorder(BorderFactory.createTitledBorder("Advanced"));
+        advancedPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         advancedModeCheck = new JCheckBox("Enable advanced mode", advancedMode);
         advancedModeCheck.addActionListener(e -> toggleAdvancedMode());
 
         advancedPanel.add(advancedModeCheck);
+        advancedPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, advancedPanel.getPreferredSize().height + 20));
         settingsPanel.add(advancedPanel);
 
         panel.add(settingsPanel, BorderLayout.NORTH);
