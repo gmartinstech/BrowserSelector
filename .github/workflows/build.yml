@@ -23,7 +23,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Checkout tag or main
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          $tag = "${{ inputs.tag }}"
+          # Check if tag exists
+          $tagExists = git tag -l $tag
+          if (-not $tagExists) {
+            Write-Host "Tag $tag does not exist, using main branch"
+            git checkout main
+          } else {
+            Write-Host "Using tag $tag"
+            git checkout $tag
+          }
 
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
@@ -38,6 +53,9 @@ jobs:
           $version = (Select-Xml -Path pom.xml -XPath "//*[local-name()='project']/*[local-name()='version']").Node.InnerText
           echo "VERSION=$version" >> $env:GITHUB_OUTPUT
           echo "Detected version: $version"
+
+      - name: Run tests
+        run: mvn test
 
       - name: Build with Maven
         run: mvn clean package -DskipTests
@@ -55,7 +73,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Checkout tag or main
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          TAG="${{ inputs.tag }}"
+          # Check if tag exists
+          if git tag -l "$TAG" | grep -q .; then
+            echo "Using tag $TAG"
+            git checkout "$TAG"
+          else
+            echo "Tag $TAG does not exist, using main branch"
+            git checkout main
+          fi
 
       - name: Set up JDK ${{ env.ANDROID_JAVA_VERSION }}
         uses: actions/setup-java@v4
@@ -87,6 +119,10 @@ jobs:
       - name: Generate Gradle Wrapper
         working-directory: android
         run: gradle wrapper --gradle-version 8.4
+
+      - name: Run Android Unit Tests
+        working-directory: android
+        run: ./gradlew test
 
       - name: Build Android Release APK
         working-directory: android
@@ -128,7 +164,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Checkout tag or main
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          $tag = "${{ inputs.tag }}"
+          # Check if tag exists
+          $tagExists = git tag -l $tag
+          if (-not $tagExists) {
+            Write-Host "Tag $tag does not exist, using main branch"
+            git checkout main
+          } else {
+            Write-Host "Using tag $tag"
+            git checkout $tag
+          }
 
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
