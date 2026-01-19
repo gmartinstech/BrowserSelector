@@ -146,7 +146,7 @@ object PatternMatcher {
      * matching both the exact domain and subdomains.
      */
     fun domainToPattern(domain: String): String {
-        return domain.removePrefix("www.").trim()
+        return domain.trim().removePrefix("www.")
     }
 
     /**
