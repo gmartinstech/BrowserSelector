@@ -137,25 +137,79 @@ jobs:
         working-directory: android
         run: ./gradlew test
 
-      - name: Build Android Release APK
-        if: steps.check_android.outputs.ANDROID_EXISTS == 'true'
+      - name: Decode Keystore
+        if: steps.check_android.outputs.ANDROID_EXISTS == 'true' && env.KEYSTORE_BASE64 != ''
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/keystore.jks
+          echo "Keystore decoded successfully"
+
+      - name: Build Android Release APK (Signed)
+        if: steps.check_android.outputs.ANDROID_EXISTS == 'true' && env.KEYSTORE_BASE64 != ''
         working-directory: android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PATH: ${{ github.workspace }}/android/app/keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew assembleRelease
+
+      - name: Build Android Release APK (Unsigned)
+        if: steps.check_android.outputs.ANDROID_EXISTS == 'true' && env.KEYSTORE_BASE64 == ''
+        working-directory: android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: ./gradlew assembleRelease
+
+      - name: Build Android App Bundle (Signed)
+        if: steps.check_android.outputs.ANDROID_EXISTS == 'true' && env.KEYSTORE_BASE64 != ''
+        working-directory: android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PATH: ${{ github.workspace }}/android/app/keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew bundleRelease
+
+      - name: Build Android App Bundle (Unsigned)
+        if: steps.check_android.outputs.ANDROID_EXISTS == 'true' && env.KEYSTORE_BASE64 == ''
+        working-directory: android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: ./gradlew bundleRelease
 
       - name: Build Android Debug APK
         if: steps.check_android.outputs.ANDROID_EXISTS == 'true'
         working-directory: android
         run: ./gradlew assembleDebug
 
-      - name: Rename APKs with version
+      - name: Rename artifacts with version
         if: steps.check_android.outputs.ANDROID_EXISTS == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           TAG="${{ steps.version.outputs.TAG }}"
           mkdir -p artifacts
 
-          # Copy release APK if exists
-          if [ -f android/app/build/outputs/apk/release/app-release-unsigned.apk ]; then
+          # Copy signed or unsigned release APK
+          if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk "artifacts/BrowserSelector-${TAG}-release.apk"
+            echo "Copied signed release APK"
+          elif [ -f android/app/build/outputs/apk/release/app-release-unsigned.apk ]; then
             cp android/app/build/outputs/apk/release/app-release-unsigned.apk "artifacts/BrowserSelector-${TAG}-release-unsigned.apk"
+            echo "Copied unsigned release APK"
+          fi
+
+          # Copy AAB (Android App Bundle) for Play Store
+          if [ -f android/app/build/outputs/bundle/release/app-release.aab ]; then
+            cp android/app/build/outputs/bundle/release/app-release.aab "artifacts/BrowserSelector-${TAG}-release.aab"
+            echo "Copied signed AAB"
+          elif [ -f android/app/build/outputs/bundle/release/app-release-unsigned.aab ]; then
+            cp android/app/build/outputs/bundle/release/app-release-unsigned.aab "artifacts/BrowserSelector-${TAG}-release.aab"
+            echo "Copied unsigned AAB"
           fi
 
           # Copy debug APK
@@ -165,12 +219,18 @@ jobs:
 
           ls -la artifacts/
 
-      - name: Upload Android APK artifact
+      - name: Clean up keystore
+        if: always() && steps.check_android.outputs.ANDROID_EXISTS == 'true'
+        run: rm -f android/app/keystore.jks
+
+      - name: Upload Android artifacts
         if: steps.check_android.outputs.ANDROID_EXISTS == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: browser-selector-android
-          path: artifacts/*.apk
+          path: |
+            artifacts/*.apk
+            artifacts/*.aab
           if-no-files-found: warn
 
   package:
@@ -362,6 +422,7 @@ jobs:
             artifacts/*.zip
             artifacts/*.msix
             artifacts/*.apk
+            artifacts/*.aab
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(steps.tag_name.outputs.TAG, 'alpha') || contains(steps.tag_name.outputs.TAG, 'beta') || contains(steps.tag_name.outputs.TAG, 'rc') }}

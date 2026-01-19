@@ -6,16 +6,32 @@ plugins {
 
 android {
     namespace = "com.browserselector.android"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.browserselector.android"
         minSdk = 24
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        targetSdk = 35
+        versionCode = 8
+        versionName = "1.8.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("KEYSTORE_PATH")
+            val keystorePassword = System.getenv("KEYSTORE_PASSWORD")
+            val keyAliasName = System.getenv("KEY_ALIAS")
+            val keyAliasPassword = System.getenv("KEY_PASSWORD")
+
+            if (keystorePath != null && keystorePassword != null && keyAliasName != null && keyAliasPassword != null) {
+                storeFile = file(keystorePath)
+                storePassword = keystorePassword
+                keyAlias = keyAliasName
+                keyPassword = keyAliasPassword
+            }
+        }
     }
 
     buildTypes {
@@ -26,6 +42,26 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Use release signing config if available
+            val releaseSigningConfig = signingConfigs.findByName("release")
+            if (releaseSigningConfig?.storeFile != null) {
+                signingConfig = releaseSigningConfig
+            }
+        }
+    }
+
+    bundle {
+        language {
+            // Include all language resources
+            enableSplit = true
+        }
+        density {
+            // Include all density resources
+            enableSplit = true
+        }
+        abi {
+            // Include all ABI resources
+            enableSplit = true
         }
     }
 
