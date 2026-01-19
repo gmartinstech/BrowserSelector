@@ -101,6 +101,17 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Check if Android project exists
+        id: check_android
+        run: |
+          if [ -d "android" ]; then
+            echo "ANDROID_EXISTS=true" >> $GITHUB_OUTPUT
+            echo "Android project found"
+          else
+            echo "ANDROID_EXISTS=false" >> $GITHUB_OUTPUT
+            echo "Android project not found - skipping Android build"
+          fi
+
       - name: Determine version
         id: version
         run: |
@@ -117,22 +128,27 @@ jobs:
           echo "Version: $VERSION"
 
       - name: Generate Gradle Wrapper
+        if: steps.check_android.outputs.ANDROID_EXISTS == 'true'
         working-directory: android
         run: gradle wrapper --gradle-version 8.4
 
       - name: Run Android Unit Tests
+        if: steps.check_android.outputs.ANDROID_EXISTS == 'true'
         working-directory: android
         run: ./gradlew test
 
       - name: Build Android Release APK
+        if: steps.check_android.outputs.ANDROID_EXISTS == 'true'
         working-directory: android
         run: ./gradlew assembleRelease
 
       - name: Build Android Debug APK
+        if: steps.check_android.outputs.ANDROID_EXISTS == 'true'
         working-directory: android
         run: ./gradlew assembleDebug
 
       - name: Rename APKs with version
+        if: steps.check_android.outputs.ANDROID_EXISTS == 'true'
         run: |
           TAG="${{ steps.version.outputs.TAG }}"
           mkdir -p artifacts
@@ -150,6 +166,7 @@ jobs:
           ls -la artifacts/
 
       - name: Upload Android APK artifact
+        if: steps.check_android.outputs.ANDROID_EXISTS == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: browser-selector-android
