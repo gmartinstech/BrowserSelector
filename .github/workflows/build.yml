@@ -451,24 +451,102 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             SKIP_INSTALL=NO
 
+      - name: Build for Simulator (for screenshots)
+        if: steps.check_ios.outputs.IOS_EXISTS == 'true'
+        working-directory: ios
+        run: |
+          xcodebuild build \
+            -project BrowserSelector.xcodeproj \
+            -scheme BrowserSelector \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -derivedDataPath build-simulator \
+            CODE_SIGNING_ALLOWED='NO'
+
+      - name: Take Simulator Screenshot
+        if: steps.check_ios.outputs.IOS_EXISTS == 'true'
+        run: |
+          # Boot simulator
+          xcrun simctl boot "iPhone 15" || true
+
+          # Install app
+          xcrun simctl install "iPhone 15" ios/build-simulator/Build/Products/Debug-iphonesimulator/BrowserSelector.app
+
+          # Launch app
+          xcrun simctl launch "iPhone 15" com.martinstech.BrowserSelector
+
+          # Wait for app to load
+          sleep 3
+
+          # Take screenshot
+          xcrun simctl io "iPhone 15" screenshot ios-screenshot.png
+
+          echo "Screenshot captured"
+
+      - name: Create Unsigned IPA
+        if: steps.check_ios.outputs.IOS_EXISTS == 'true' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+        working-directory: ios
+        run: |
+          TAG="${{ steps.version.outputs.TAG }}"
+
+          # Build for device (arm64) without signing
+          xcodebuild build \
+            -project BrowserSelector.xcodeproj \
+            -scheme BrowserSelector \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build-device \
+            CODE_SIGNING_ALLOWED='NO' \
+            CODE_SIGN_IDENTITY='' \
+            CODE_SIGNING_REQUIRED=NO
+
+          # Create IPA structure
+          mkdir -p Payload
+          cp -r build-device/Build/Products/Release-iphoneos/BrowserSelector.app Payload/
+
+          # Create unsigned IPA
+          zip -r "BrowserSelector-${TAG}-unsigned.ipa" Payload
+
+          echo "Created unsigned IPA"
+          ls -la *.ipa
+
       - name: Prepare artifacts
         if: steps.check_ios.outputs.IOS_EXISTS == 'true' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
         run: |
           TAG="${{ steps.version.outputs.TAG }}"
           mkdir -p artifacts
+
+          # Copy xcarchive
           if [ -d "ios/build/BrowserSelector.xcarchive" ]; then
             cd ios/build
             zip -r "../../artifacts/BrowserSelector-${TAG}-ios.xcarchive.zip" BrowserSelector.xcarchive
+            cd ../..
             echo "Created iOS archive zip"
           fi
-          ls -la artifacts/ || echo "No artifacts yet"
+
+          # Copy unsigned IPA
+          if [ -f "ios/BrowserSelector-${TAG}-unsigned.ipa" ]; then
+            cp "ios/BrowserSelector-${TAG}-unsigned.ipa" artifacts/
+            echo "Copied unsigned IPA"
+          fi
+
+          # Copy screenshot
+          if [ -f "ios-screenshot.png" ]; then
+            cp ios-screenshot.png "artifacts/BrowserSelector-${TAG}-screenshot.png"
+            echo "Copied screenshot"
+          fi
+
+          ls -la artifacts/
 
       - name: Upload iOS artifact
         if: steps.check_ios.outputs.IOS_EXISTS == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: browser-selector-ios
-          path: artifacts/*.zip
+          path: |
+            artifacts/*.zip
+            artifacts/*.ipa
+            artifacts/*.png
           if-no-files-found: warn
 
   release:
@@ -534,7 +612,7 @@ jobs:
             artifacts/*.msix
             artifacts/*.apk
             artifacts/*.aab
-            artifacts/*-ios.xcarchive.zip
+            artifacts/*.ipa
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(steps.tag_name.outputs.TAG, 'alpha') || contains(steps.tag_name.outputs.TAG, 'beta') || contains(steps.tag_name.outputs.TAG, 'rc') }}
