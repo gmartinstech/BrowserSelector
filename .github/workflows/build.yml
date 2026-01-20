@@ -433,7 +433,7 @@ jobs:
           xcodebuild test \
             -project BrowserSelector.xcodeproj \
             -scheme BrowserSelector \
-            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
             CODE_SIGNING_ALLOWED='NO' \
             || echo "Tests completed"
 
@@ -459,7 +459,7 @@ jobs:
             -project BrowserSelector.xcodeproj \
             -scheme BrowserSelector \
             -configuration Debug \
-            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
             -derivedDataPath build-simulator \
             CODE_SIGNING_ALLOWED='NO'
 
@@ -467,19 +467,19 @@ jobs:
         if: steps.check_ios.outputs.IOS_EXISTS == 'true'
         run: |
           # Boot simulator
-          xcrun simctl boot "iPhone 15" || true
+          xcrun simctl boot "iPhone 16" || true
 
           # Install app
-          xcrun simctl install "iPhone 15" ios/build-simulator/Build/Products/Debug-iphonesimulator/BrowserSelector.app
+          xcrun simctl install "iPhone 16" ios/build-simulator/Build/Products/Debug-iphonesimulator/BrowserSelector.app
 
           # Launch app
-          xcrun simctl launch "iPhone 15" com.martinstech.BrowserSelector
+          xcrun simctl launch "iPhone 16" com.martinstech.BrowserSelector
 
           # Wait for app to load
           sleep 3
 
           # Take screenshot
-          xcrun simctl io "iPhone 15" screenshot ios-screenshot.png
+          xcrun simctl io "iPhone 16" screenshot ios-screenshot.png
 
           echo "Screenshot captured"
 
