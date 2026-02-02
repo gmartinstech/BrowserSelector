@@ -6,7 +6,7 @@
 
     <groupId>com.browserselector</groupId>
     <artifactId>browser-selector</artifactId>
-    <version>1.8.1</version>
+    <version>1.9.2</version>
     <packaging>jar</packaging>
 
     <name>Browser Switch</name>
