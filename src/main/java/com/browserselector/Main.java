@@ -77,11 +77,20 @@ public class Main {
 
     /** EDT-only. Routes one payload — ours at startup, or forwarded from a second process. */
     private static void dispatch(String type, String value) {
+        // Refresh the watchdog clock at the END of dispatch, both branches: a
+        // slow first window (cold JVM, AV, slow disk) must never trip the
+        // linger before anything is shown. The picker is modal and blocks this
+        // method until it closes, so the url branch's refresh lands at
+        // window-close time; Settings is a non-modal JFrame whose setVisible
+        // shows it before focusOrCreate returns. The linger thus measures
+        // "time since any window was last up", not "time since JVM start".
         if (type.equals("settings")) {
             SettingsFrame.focusOrCreate();
+            lastVisible = System.currentTimeMillis();
             return;
         }
         handleUrl(value);
+        lastVisible = System.currentTimeMillis();
     }
 
     private static void handleUrl(String url) {
@@ -117,15 +126,20 @@ public class Main {
      * near-simultaneous stragglers; a forwarded link arriving during the linger
      * opens a window and resets the clock (spec: "Host lifecycle").
      */
+    /** Watchdog clock anchor: the last time a dispatch finished putting a
+     *  window up (or JVM start, before the first dispatch — see dispatch()).
+     *  Volatile: initialized on the main thread, read/written on the EDT after. */
+    private static volatile long lastVisible;
+
     private static void startLingerWatchdog() {
-        var lastVisible = new long[]{System.currentTimeMillis()};
+        lastVisible = System.currentTimeMillis();
         var timer = new javax.swing.Timer(150, e -> {
             boolean anyVisible = java.util.Arrays.stream(Window.getWindows()).anyMatch(Window::isVisible);
             if (anyVisible) {
-                lastVisible[0] = System.currentTimeMillis();
+                lastVisible = System.currentTimeMillis();
                 return;
             }
-            if (System.currentTimeMillis() - lastVisible[0] > 500) {
+            if (System.currentTimeMillis() - lastVisible > 500) {
                 System.exit(0);
             }
         });
