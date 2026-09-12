@@ -254,7 +254,7 @@ git commit -m "feat(ui): add pile model for piled links"
 **Interfaces:**
 - Consumes: nothing from other tasks; plain `java.net`.
 - Produces (Tasks 3 and 6 rely on exactly these):
-  - `static final int DEFAULT_PORT = 47517`.
+  - `static final int DEFAULT_PORT = 39999`.
   - `sealed interface Outcome permits Host, Forwarded` with `record Host()` / `record Forwarded()`.
   - `interface PayloadListener { void onPayload(String type, String value); }` — called on a **background thread**; the caller marshals to the EDT.
   - `static Outcome acquire(String type, String value, PayloadListener hostListener)` — connect to `127.0.0.1:DEFAULT_PORT` and deliver (`type`, `value`), returning `Forwarded`; or bind the port, start the accept loop, and return `Host`.
@@ -284,7 +284,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class SingleInstanceForwardingTest {
 
     /** Test-only port — never the production constant, so parallel runs never collide. */
-    private static final int PORT = 47931;
+    private static final int PORT = 38931;
 
     @AfterEach
     void closeHost() throws Exception {
@@ -388,7 +388,7 @@ import java.util.logging.Logger;
  */
 public final class SingleInstanceService {
 
-    public static final int DEFAULT_PORT = 47517;
+    public static final int DEFAULT_PORT = 39999;
     private static final int CONNECT_TIMEOUT_MS = 250;
     private static final Logger LOG = Logger.getLogger(SingleInstanceService.class.getName());
 
