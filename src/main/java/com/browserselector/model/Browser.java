@@ -1,5 +1,7 @@
 package com.browserselector.model;
 
+import com.browserselector.util.BrowserUtils;
+
 import java.nio.file.Path;
 import java.util.Objects;
 
@@ -21,7 +23,7 @@ public record Browser(
     }
 
     public Browser(String id, String name, Path exePath) {
-        this(id, name, exePath, null, null, detectIncognitoArg(name), false, null, true);
+        this(id, name, exePath, null, null, BrowserUtils.detectIncognitoArg(name), false, null, true);
     }
 
     public Browser withProfile(String profileId, String profileName, String profileArg) {
@@ -40,13 +42,6 @@ public record Browser(
 
     public Browser withEnabled(boolean enabled) {
         return new Browser(id, name, exePath, iconPath, profileArg, incognitoArg, isProfile, parentBrowserId, enabled);
-    }
-
-    private static String detectIncognitoArg(String browserName) {
-        var lower = browserName.toLowerCase();
-        if (lower.contains("firefox")) return "-private-window";
-        if (lower.contains("opera")) return "--private";
-        return "--incognito"; // Chrome, Edge, Brave, etc.
     }
 
     public String displayName() {
