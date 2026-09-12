@@ -15,6 +15,7 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 
@@ -127,6 +128,23 @@ public class SelectorDialog extends JDialog {
         pileList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         pileList.setVisibleRowCount(3);
         pileList.setCellRenderer(new PileRowRenderer());
+
+        // "Always use for" is gated on exactly one selected link; the pattern
+        // follows that link's domain (spec: no silent "applies to first").
+        pileList.addListSelectionListener(e -> {
+            if (e.getValueIsAdjusting()) {
+                return;
+            }
+            var selected = pileList.getSelectedIndices();
+            boolean one = selected.length == 1;
+            rememberCheckbox.setEnabled(one);
+            patternField.setEnabled(one && rememberCheckbox.isSelected());
+            if (one) {
+                patternField.setText(PatternMatcher.domainToPattern(pile.entries().get(selected[0]).domain()));
+                validatePattern();
+            }
+        });
+
         var scrollPane = new JScrollPane(pileList);
         scrollPane.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
         return scrollPane;
@@ -144,7 +162,11 @@ public class SelectorDialog extends JDialog {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
-                    launchSelected();
+                    if (!pileMode) {
+                        launchSelected();
+                    } else {
+                        assignAndOpenSelected(); // today's muscle memory: double-click = open now
+                    }
                 }
             }
         });
@@ -200,7 +222,13 @@ public class SelectorDialog extends JDialog {
         cancelBtn.addActionListener(e -> dispose());
 
         openBtn = new JButton("Open");
-        openBtn.addActionListener(e -> launchSelected());
+        openBtn.addActionListener(e -> {
+            if (!pileMode) {
+                launchSelected();
+            } else {
+                commitPile();
+            }
+        });
         getRootPane().setDefaultButton(openBtn);
         applyAccent(openBtn);
 
@@ -243,6 +271,11 @@ public class SelectorDialog extends JDialog {
         pileMode = true; // one-way: Delete may shrink the pile to one row, but the
                          // assign/commit contract must survive (see Task 5 routing)
         buildContentPane(); // NORTH now renders the links list instead of the URL label
+        // The rebuild recreated browserList, so the launch shortcuts registered
+        // at initUI died with the old component — re-put them on the new list
+        // (same keys re-put = idempotent), then add the pile-mode bindings.
+        setupKeyBindings();
+        setupPileKeyBindings();
     }
 
     private void refreshPileList() {
@@ -251,6 +284,11 @@ public class SelectorDialog extends JDialog {
         if (pileList != null) {
             pileList.setListData(pile.entries().toArray(new PileModel.Entry[0]));
         }
+        openBtn.setText(!pileMode ? "Open" : "Open (" + pile.assignedCount() + " of " + pile.size() + ")");
+        // The count label widens the action cluster; re-pack so the "Always use"
+        // commitment row keeps its width instead of wrapping the pattern field
+        // out of view (pack() is a no-op size-wise while the label is narrow).
+        pack();
     }
 
     private void setupKeyBindings() {
@@ -299,9 +337,142 @@ public class SelectorDialog extends JDialog {
                 if (index >= 0) {
                     browserList.setSelectedIndex(index);
                 }
-                launchSelected();
+                if (!pileMode) {
+                    launchSelected();
+                } else {
+                    assignBrowserToSelection(browserList.getSelectedValue());
+                }
             }
         };
+    }
+
+    private void setupPileKeyBindings() {
+        var inputMap = pileList.getInputMap(JComponent.WHEN_FOCUSED);
+        var actionMap = pileList.getActionMap();
+
+        // Digits 1..n assign that browser row — never fire during pattern typing:
+        // these live on the list (WHEN_FOCUSED), same scoping as browserList.
+        for (int i = 1; i <= 9 && i <= browsers.size(); i++) {
+            final int index = i - 1;
+            inputMap.put(KeyStroke.getKeyStroke(Character.forDigit(i, 10)), "pile-assign-" + index);
+            actionMap.put("pile-assign-" + index, assignAction(index));
+            // KEY_TYPED strokes see the shifted character (Shift+1 types '!'), so the
+            // plain-char binding alone never fires with Shift held — also register the
+            // VK+Shift stroke, or "Shift held while assigning" (spec) would be digit-
+            // impossible. Pile-mode only; single-link bindings stay unchanged.
+            inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_0 + i, InputEvent.SHIFT_DOWN_MASK),
+                "pile-assign-" + index);
+        }
+        // Initial letters, first match wins, deduped — same contract as browserList.
+        var used = new HashSet<Character>();
+        for (int i = 0; i < browsers.size(); i++) {
+            char c = Character.toLowerCase(browsers.get(i).name().charAt(0));
+            if (!used.add(c)) {
+                continue;
+            }
+            final int index = i;
+            inputMap.put(KeyStroke.getKeyStroke(c), "pile-assign-" + index);
+            inputMap.put(KeyStroke.getKeyStroke(Character.toUpperCase(c)), "pile-assign-" + index);
+            actionMap.put("pile-assign-" + index, assignAction(index));
+        }
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "pile-commit");
+        actionMap.put("pile-commit", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                commitPile();
+            }
+        });
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "pile-remove");
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0), "pile-remove");
+        actionMap.put("pile-remove", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                removeSelected();
+            }
+        });
+    }
+
+    private Action assignAction(int index) {
+        return new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                assignBrowserToSelection(browsers.get(index));
+            }
+        };
+    }
+
+    /** Assigns the browser to the selected rows; an empty selection means the whole pile. */
+    private void assignBrowserToSelection(Browser browser) {
+        if (browser == null || !pileMode) {
+            return;
+        }
+        var selected = pileList.getSelectedIndices();
+        if (selected.length == 0) {
+            selected = new int[pile.size()];
+            for (int i = 0; i < selected.length; i++) {
+                selected[i] = i;
+            }
+        }
+        var indices = new ArrayList<Integer>(selected.length);
+        for (int i : selected) {
+            indices.add(i);
+        }
+        pile.assign(indices, browser, showIncognito && shiftPressed);
+        refreshPileList();
+    }
+
+    /** Assign + immediate dispatch for the selection (double-click on a browser row). */
+    private void assignAndOpenSelected() {
+        assignBrowserToSelection(browserList.getSelectedValue());
+        commitPile();
+    }
+
+    /** Open all assigned links, keep unassigned rows; collect failures, report once. */
+    private void commitPile() {
+        var drained = pile.drainAssigned();
+        var failures = new ArrayList<String>();
+        for (var entry : drained) {
+            // parent == null: collect here instead of one dialog per failed link
+            if (!BrowserUtils.launch(entry.assigned(), entry.url(), entry.privateMode(), null)) {
+                failures.add(entry.url());
+            }
+        }
+        refreshPileList();
+        if (pile.size() == 0) {
+            dispose();
+            return;
+        }
+        if (!failures.isEmpty()) {
+            showLaunchFailures(failures);
+        }
+    }
+
+    private void showLaunchFailures(List<String> failures) {
+        var shown = failures.stream()
+            .limit(5)
+            .map(u -> middleTruncate(u, 64))
+            .collect(java.util.stream.Collectors.joining("\n"));
+        if (failures.size() > 5) {
+            shown += "\n… and " + (failures.size() - 5) + " more";
+        }
+        JOptionPane.showMessageDialog(this,
+            "Could not open " + failures.size() + (failures.size() == 1 ? " link" : " links") + ":\n" + shown,
+            "Launch Failed",
+            JOptionPane.WARNING_MESSAGE);
+    }
+
+    private void removeSelected() {
+        var selected = pileList.getSelectedIndices();
+        var indices = new ArrayList<Integer>(selected.length);
+        for (int i : selected) {
+            indices.add(i);
+        }
+        pile.remove(indices);
+        highlightUrl = null;
+        refreshPileList();
+        if (pile.size() == 0) {
+            dispose();
+        }
     }
 
     private void addGlobalKeyListener() {
@@ -371,6 +542,10 @@ public class SelectorDialog extends JDialog {
     }
 
     private void openSettings() {
+        if (pileMode) {
+            SettingsFrame.focusOrCreate(); // keep the pile open behind Settings
+            return;
+        }
         dispose();
         SwingUtilities.invokeLater(SettingsFrame::focusOrCreate);
     }
@@ -471,11 +646,14 @@ public class SelectorDialog extends JDialog {
                 if (entry.assigned() != null) {
                     text += "  →  " + entry.assigned().name().trim();
                     setIcon(Icons.forBrowser(entry.assigned()));
+                } else {
+                    setIcon(null); // renderer reuse: clear any inherited chip icon
                 }
                 if (entry.privateMode()) {
                     text += "  (Private)";
                 }
                 setText(text);
+                setToolTipText(entry.url()); // spec: full URL on tooltip
                 if (entry.url().equals(highlightUrl) && !isSelected) {
                     var highlight = UIManager.getColor("Component.infoBackground");
                     if (highlight == null) {
