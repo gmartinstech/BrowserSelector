@@ -1,17 +1,21 @@
 package com.browserselector.ui;
 
 import com.browserselector.model.Browser;
+import com.browserselector.model.Setting;
 import com.browserselector.model.UrlRule;
 import com.browserselector.service.DatabaseService;
+import com.browserselector.util.BrowserUtils;
+import com.browserselector.util.Icons;
 import com.browserselector.util.PatternMatcher;
 import com.browserselector.util.UrlUtils;
+import com.browserselector.util.WindowsTheme;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
-import java.io.IOException;
 import java.nio.file.Files;
+import java.util.HashSet;
 import java.util.List;
 
 public class SelectorDialog extends JDialog {
@@ -21,6 +25,7 @@ public class SelectorDialog extends JDialog {
     private final DatabaseService db;
     private final List<Browser> browsers;
     private final JFrame ownerFrame;
+    private final boolean showIncognito;
 
     private JList<Browser> browserList;
     private JCheckBox rememberCheckbox;
@@ -34,6 +39,7 @@ public class SelectorDialog extends JDialog {
         this.domain = UrlUtils.extractDomain(url);
         this.db = DatabaseService.getInstance();
         this.browsers = db.getEnabledBrowsers();
+        this.showIncognito = db.getToggle(Setting.Toggle.SHOW_INCOGNITO, true);
 
         initUI();
         setupKeyBindings();
@@ -63,21 +69,9 @@ public class SelectorDialog extends JDialog {
         // Make the frame appear in taskbar so dialog can show
         frame.setType(Window.Type.NORMAL);
         // Set app icon
-        loadAppIcon(frame);
+        BrowserUtils.setAppIcon(frame);
         frame.setVisible(true);
         return frame;
-    }
-
-    private static void loadAppIcon(Window window) {
-        try {
-            var iconUrl = SelectorDialog.class.getResource("/icon.png");
-            if (iconUrl != null) {
-                var icon = new ImageIcon(iconUrl).getImage();
-                window.setIconImage(icon);
-            }
-        } catch (Exception e) {
-            // Icon loading failed, continue without custom icon
-        }
     }
 
     private void initUI() {
@@ -85,12 +79,14 @@ public class SelectorDialog extends JDialog {
         setResizable(false);
 
         var panel = new JPanel(new BorderLayout(10, 10));
-        panel.setBorder(new EmptyBorder(15, 15, 15, 15));
+        panel.setBorder(new EmptyBorder(15, 15, 12, 15));
 
-        // URL display
-        var urlLabel = new JLabel(truncateUrl(url, 60));
+        // URL display — keep the head (scheme + domain) and the tail (where
+        // the specific target lives); elide the middle. Full URL on tooltip.
+        var urlLabel = new JLabel(middleTruncate(url, 64));
         urlLabel.setFont(urlLabel.getFont().deriveFont(Font.PLAIN, 11f));
-        urlLabel.setForeground(Color.GRAY);
+        urlLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        urlLabel.setToolTipText(url);
         panel.add(urlLabel, BorderLayout.NORTH);
 
         // Browser list
@@ -109,48 +105,48 @@ public class SelectorDialog extends JDialog {
             }
         });
 
-        browserList.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                    launchSelected();
-                } else if (e.getKeyCode() == KeyEvent.VK_SHIFT) {
-                    shiftPressed = true;
-                    browserList.repaint();
-                }
-            }
-
-            @Override
-            public void keyReleased(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_SHIFT) {
-                    shiftPressed = false;
-                    browserList.repaint();
-                }
-            }
-        });
-
         var scrollPane = new JScrollPane(browserList);
         scrollPane.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
         panel.add(scrollPane, BorderLayout.CENTER);
 
-        // Bottom panel
-        var bottomPanel = new JPanel(new BorderLayout(5, 5));
+        // South stack: keyboard hint, separator, commitment | actions
+        var south = new JPanel();
+        south.setLayout(new BoxLayout(south, BoxLayout.Y_AXIS));
 
-        // Remember checkbox and pattern field
-        var rememberPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        var hint = new JLabel("Tip: press a number or an initial to launch instantly"
+            + (showIncognito ? " · hold Shift for private" : ""));
+        hint.setFont(hint.getFont().deriveFont(Font.PLAIN, 10.5f));
+        hint.setForeground(UIManager.getColor("Label.disabledForeground"));
+        hint.setAlignmentX(Component.LEFT_ALIGNMENT);
+        south.add(hint);
+        south.add(Box.createVerticalStrut(6));
+        var separator = new JSeparator();
+        separator.setAlignmentX(Component.LEFT_ALIGNMENT);
+        south.add(separator);
+        south.add(Box.createVerticalStrut(8));
+
+        // Commitment cluster (left) — its own visual group, separated from
+        // the action buttons (right) so the two decisions never blur.
+        var bottomPanel = new JPanel(new BorderLayout(10, 0));
+        bottomPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        var commitment = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         rememberCheckbox = new JCheckBox("Always use for:");
-        patternField = new JTextField(PatternMatcher.domainToPattern(domain), 20);
+        patternField = new JTextField(PatternMatcher.domainToPattern(domain), 18);
         patternField.setEnabled(false);
+        rememberCheckbox.setMnemonic(java.awt.event.KeyEvent.VK_A);
+        rememberCheckbox.setDisplayedMnemonicIndex(0);
+        patternField.setToolTipText("Wildcard pattern, e.g. *.example.org or github.com/*");
+        rememberCheckbox.addActionListener(e -> {
+            patternField.setEnabled(rememberCheckbox.isSelected());
+            validatePattern();
+        });
+        patternField.getDocument().addDocumentListener(docListener(this::validatePattern));
+        commitment.add(rememberCheckbox);
+        commitment.add(patternField);
+        bottomPanel.add(commitment, BorderLayout.CENTER);
 
-        rememberCheckbox.addActionListener(e -> patternField.setEnabled(rememberCheckbox.isSelected()));
-
-        rememberPanel.add(rememberCheckbox);
-        rememberPanel.add(patternField);
-        bottomPanel.add(rememberPanel, BorderLayout.CENTER);
-
-        // Buttons
-        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-
+        var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
         var settingsBtn = new JButton("Settings");
         settingsBtn.addActionListener(e -> openSettings());
 
@@ -160,13 +156,15 @@ public class SelectorDialog extends JDialog {
         var openBtn = new JButton("Open");
         openBtn.addActionListener(e -> launchSelected());
         getRootPane().setDefaultButton(openBtn);
+        applyAccent(openBtn);
 
-        buttonPanel.add(settingsBtn);
-        buttonPanel.add(cancelBtn);
-        buttonPanel.add(openBtn);
-        bottomPanel.add(buttonPanel, BorderLayout.SOUTH);
+        actions.add(settingsBtn);
+        actions.add(cancelBtn);
+        actions.add(openBtn);
+        bottomPanel.add(actions, BorderLayout.EAST);
 
-        panel.add(bottomPanel, BorderLayout.SOUTH);
+        south.add(bottomPanel);
+        panel.add(south, BorderLayout.SOUTH);
 
         // Shift indicator
         addGlobalKeyListener();
@@ -174,6 +172,7 @@ public class SelectorDialog extends JDialog {
         setContentPane(panel);
         pack();
         setMinimumSize(new Dimension(400, 300));
+        validatePattern();
     }
 
     private void setupKeyBindings() {
@@ -184,33 +183,47 @@ public class SelectorDialog extends JDialog {
             JComponent.WHEN_IN_FOCUSED_WINDOW
         );
 
-        // Number keys 1-9 to select browser
+        // Launch shortcuts live on the list (WHEN_FOCUSED), so they can never
+        // fire while the user is typing in the "Always use for" pattern field.
+        var inputMap = browserList.getInputMap(JComponent.WHEN_FOCUSED);
+        var actionMap = browserList.getActionMap();
+
+        // Number keys 1-9 launch that row
         for (int i = 1; i <= 9 && i <= browsers.size(); i++) {
-            var index = i - 1;
-            getRootPane().registerKeyboardAction(
-                e -> {
-                    browserList.setSelectedIndex(index);
-                    launchSelected();
-                },
-                KeyStroke.getKeyStroke(Character.forDigit(i, 10), 0),
-                JComponent.WHEN_IN_FOCUSED_WINDOW
-            );
+            final int index = i - 1;
+            inputMap.put(KeyStroke.getKeyStroke(Character.forDigit(i, 10)), "launch-" + index);
+            actionMap.put("launch-" + index, launchAction(index));
         }
 
-        // First letter of browser name
+        // Initial letters — the first matching row wins, so behavior stays
+        // predictable when several browsers share an initial.
+        var used = new HashSet<Character>();
         for (int i = 0; i < browsers.size(); i++) {
-            var browser = browsers.get(i);
-            var firstChar = Character.toLowerCase(browser.name().charAt(0));
-            var index = i;
-            getRootPane().registerKeyboardAction(
-                e -> {
-                    browserList.setSelectedIndex(index);
-                    launchSelected();
-                },
-                KeyStroke.getKeyStroke(firstChar),
-                JComponent.WHEN_IN_FOCUSED_WINDOW
-            );
+            char c = Character.toLowerCase(browsers.get(i).name().charAt(0));
+            if (!used.add(c)) {
+                continue;
+            }
+            final int index = i;
+            inputMap.put(KeyStroke.getKeyStroke(c), "launch-" + index);
+            inputMap.put(KeyStroke.getKeyStroke(Character.toUpperCase(c)), "launch-" + index);
+            actionMap.put("launch-" + index, launchAction(index));
         }
+
+        // Enter launches through one path — no double fire with the default button.
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "launch-enter");
+        actionMap.put("launch-enter", launchAction(-1));
+    }
+
+    private Action launchAction(int index) {
+        return new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (index >= 0) {
+                    browserList.setSelectedIndex(index);
+                }
+                launchSelected();
+            }
+        };
     }
 
     private void addGlobalKeyListener() {
@@ -226,45 +239,57 @@ public class SelectorDialog extends JDialog {
         });
     }
 
+    private void validatePattern() {
+        if (!rememberCheckbox.isSelected()) {
+            patternField.putClientProperty("JComponent.outline", null);
+            return;
+        }
+        var pattern = patternField.getText().trim();
+        boolean ok = PatternMatcher.isValidPattern(pattern);
+        patternField.putClientProperty("JComponent.outline", ok ? null : "error");
+        patternField.setToolTipText(ok
+            ? "Will always open matching links in the selected browser"
+            : "Invalid pattern — use forms like *.example.org or github.com/*");
+    }
+
     private void launchSelected() {
         var selected = browserList.getSelectedValue();
         if (selected == null) return;
 
-        // Save rule if checkbox is selected
+        // Save rule if checkbox is selected — loudly, never silently
         if (rememberCheckbox.isSelected()) {
             var pattern = patternField.getText().trim();
-            if (PatternMatcher.isValidPattern(pattern)) {
-                db.saveRule(new UrlRule(pattern, selected.id()));
+            if (!PatternMatcher.isValidPattern(pattern)) {
+                JOptionPane.showMessageDialog(this,
+                    "“" + pattern + "” is not a valid URL pattern.\n"
+                    + "Use forms like *.example.org or github.com/*,\n"
+                    + "or untick \u201CAlways use for\u201D to open without saving.",
+                    "Invalid Pattern",
+                    JOptionPane.WARNING_MESSAGE);
+                patternField.requestFocusInWindow();
+                return;
             }
+            db.saveRule(new UrlRule(pattern, selected.id()));
+            confirmSaved(pattern, selected);
         }
 
         // Launch browser
-        launchBrowser(selected, url, shiftPressed);
+        launchBrowser(selected, url, showIncognito && shiftPressed);
         dispose();
     }
 
+    /** Confirms the saved rule with a small non-modal toast offering undo. */
+    private void confirmSaved(String pattern, Browser browser) {
+        var saved = db.getAllRules().stream()
+            .filter(r -> r.pattern().equals(pattern) && r.browserId().equals(browser.id()))
+            .findFirst();
+        if (saved.isEmpty()) return;
+        var ruleId = saved.get().id();
+        SwingUtilities.invokeLater(() -> RuleSaveToast.show(pattern, browser, ruleId, db));
+    }
+
     private void launchBrowser(Browser browser, String url, boolean incognito) {
-        try {
-            var command = new java.util.ArrayList<String>();
-            command.add(browser.exePath().toString());
-
-            if (browser.profileArg() != null && !browser.profileArg().isBlank()) {
-                command.add(browser.profileArg());
-            }
-
-            if (incognito && browser.incognitoArg() != null) {
-                command.add(browser.incognitoArg());
-            }
-
-            command.add(url);
-
-            new ProcessBuilder(command).start();
-        } catch (IOException e) {
-            JOptionPane.showMessageDialog(this,
-                "Failed to launch browser: " + e.getMessage(),
-                "Error",
-                JOptionPane.ERROR_MESSAGE);
-        }
+        BrowserUtils.launch(browser, url, incognito, this);
     }
 
     private void openSettings() {
@@ -287,9 +312,73 @@ public class SelectorDialog extends JDialog {
         });
     }
 
-    private String truncateUrl(String url, int maxLen) {
-        if (url.length() <= maxLen) return url;
-        return url.substring(0, maxLen - 3) + "...";
+    private String middleTruncate(String u, int maxLen) {
+        if (u.length() <= maxLen) return u;
+        int head = (int) (maxLen * 0.6);
+        int tail = maxLen - head - 1;
+        return u.substring(0, head) + "…" + u.substring(u.length() - tail);
+    }
+
+    private static javax.swing.event.DocumentListener docListener(Runnable r) {
+        return new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { r.run(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { r.run(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { r.run(); }
+        };
+    }
+
+    /** Paints the primary action in the user's Windows accent color. */
+    static void applyAccent(AbstractButton button) {
+        var accent = WindowsTheme.accentColor();
+        if (accent == null) return;
+        button.setBackground(accent);
+        button.setForeground(Color.WHITE);
+        button.setFont(button.getFont().deriveFont(Font.BOLD));
+        button.setFocusPainted(true);
+    }
+
+    /**
+     * A small non-modal confirmation with undo, shown after an
+     * “Always use for” rule is saved. The picker itself is already gone when
+     * this appears, so the user learns the rule took effect — and can still
+     * take it back.
+     */
+    static final class RuleSaveToast extends JDialog {
+        private static final int AUTO_DISMISS_MS = 8000;
+
+        private RuleSaveToast(String pattern, Browser browser, int ruleId, DatabaseService db) {
+            super((Frame) null, "Rule saved");
+            setUndecorated(true);
+            setAlwaysOnTop(true);
+            ((JRootPane) getRootPane()).setBorder(
+                BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
+
+            var panel = new JPanel(new BorderLayout(10, 0));
+            panel.setBorder(new EmptyBorder(10, 14, 10, 14));
+            panel.add(new JLabel("Always opening " + pattern + " in " + browser.name().trim()), BorderLayout.CENTER);
+
+            var undoBtn = new JButton("Undo");
+            undoBtn.addActionListener(e -> {
+                db.deleteRule(ruleId);
+                dispose();
+            });
+            panel.add(undoBtn, BorderLayout.EAST);
+            setContentPane(panel);
+
+            var timer = new javax.swing.Timer(AUTO_DISMISS_MS, e -> dispose());
+            timer.setRepeats(false);
+            timer.start();
+        }
+
+        private static void show(String pattern, Browser browser, int ruleId, DatabaseService db) {
+            var toast = new RuleSaveToast(pattern, browser, ruleId, db);
+            toast.pack();
+            var screen = toast.getGraphicsConfiguration().getBounds();
+            int x = screen.x + screen.width - toast.getWidth() - 24;
+            int y = screen.y + screen.height - toast.getHeight() - 48;
+            toast.setLocation(x, y);
+            toast.setVisible(true);
+        }
     }
 
     private class BrowserListRenderer extends DefaultListCellRenderer {
@@ -298,28 +387,23 @@ public class SelectorDialog extends JDialog {
                 int index, boolean isSelected, boolean cellHasFocus) {
 
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            setBorder(new EmptyBorder(8, 10, 8, 10));
 
             if (value instanceof Browser browser) {
-                var displayText = (index + 1) + ". " + browser.displayName();
-                if (shiftPressed && browser.incognitoArg() != null) {
-                    displayText += " (Private)";
+                var displayText = (index + 1) + ".  " + (browser.isProfile() ? "└ " : "") + browser.name();
+                if (showIncognito && shiftPressed && browser.incognitoArg() != null) {
+                    displayText += "  (Private)";
                 }
                 setText(displayText);
+                setIcon(Icons.forBrowser(browser));
 
-                // Load icon if available
-                if (browser.iconPath() != null && Files.exists(browser.iconPath())) {
-                    try {
-                        var icon = new ImageIcon(browser.iconPath().toString());
-                        var scaled = icon.getImage().getScaledInstance(24, 24, Image.SCALE_SMOOTH);
-                        setIcon(new ImageIcon(scaled));
-                    } catch (Exception e) {
-                        setIcon(UIManager.getIcon("FileView.computerIcon"));
+                // Profiles read as children of their browser, not look-alike siblings.
+                if (browser.isProfile()) {
+                    setFont(getFont().deriveFont(Font.PLAIN, getFont().getSize2D() - 1f));
+                    if (!isSelected) {
+                        setForeground(UIManager.getColor("Label.disabledForeground"));
                     }
-                } else {
-                    setIcon(UIManager.getIcon("FileView.computerIcon"));
                 }
-
-                setBorder(new EmptyBorder(8, 10, 8, 10));
             }
 
             return this;

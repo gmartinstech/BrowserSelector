@@ -4,14 +4,20 @@ import com.browserselector.model.Browser;
 import com.browserselector.model.Setting;
 import com.browserselector.model.UrlRule;
 import com.browserselector.service.*;
+import com.browserselector.util.BrowserUtils;
+import com.browserselector.util.Icons;
+import com.browserselector.util.PatternMatcher;
+import com.browserselector.util.WindowsTheme;
 import com.formdev.flatlaf.FlatDarkLaf;
 import com.formdev.flatlaf.FlatLightLaf;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableRowSorter;
 import java.awt.*;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 public class SettingsFrame extends JFrame {
@@ -28,6 +34,9 @@ public class SettingsFrame extends JFrame {
     private JTable browsersTable;
     private DefaultTableModel rulesModel;
     private DefaultTableModel browsersModel;
+    private TableRowSorter<DefaultTableModel> rulesSorter;
+    private JScrollPane rulesScroll;
+    private JTextField searchField;
 
     private JCheckBox advancedModeCheck;
     private JCheckBox showIncognitoCheck;
@@ -37,7 +46,7 @@ public class SettingsFrame extends JFrame {
     private boolean advancedMode;
 
     public SettingsFrame() {
-        super("Browser Switch - Settings");
+        super("Browser Selector - Settings");
         this.db = DatabaseService.getInstance();
         this.registry = new RegistryService();
         this.browserDetector = new BrowserDetector();
@@ -46,20 +55,11 @@ public class SettingsFrame extends JFrame {
 
         loadAppIcon();
         initUI();
-        loadData();
         centerOnScreen();
     }
 
     private void loadAppIcon() {
-        try {
-            var iconUrl = SettingsFrame.class.getResource("/icon.png");
-            if (iconUrl != null) {
-                var icon = new ImageIcon(iconUrl).getImage();
-                setIconImage(icon);
-            }
-        } catch (Exception e) {
-            // Icon loading failed, continue without custom icon
-        }
+        BrowserUtils.setAppIcon(this);
     }
 
     private void initUI() {
@@ -67,8 +67,15 @@ public class SettingsFrame extends JFrame {
         setSize(700, 500);
 
         tabbedPane = new JTabbedPane();
+        rebuildTabs();
 
-        // Rules tab
+        add(tabbedPane);
+    }
+
+    /** Rebuilds the tabs in place so advanced-mode changes apply instantly. */
+    private void rebuildTabs() {
+        tabbedPane.removeAll();
+
         tabbedPane.addTab("URL Rules", createRulesPanel());
 
         // Browsers tab (advanced mode)
@@ -76,40 +83,62 @@ public class SettingsFrame extends JFrame {
             tabbedPane.addTab("Browsers", createBrowsersPanel());
         }
 
-        // Settings tab
-        tabbedPane.addTab("Settings", createSettingsPanel());
+        // General tab
+        tabbedPane.addTab("General", createSettingsPanel());
 
-        add(tabbedPane);
+        loadData();
+        tabbedPane.revalidate();
+        tabbedPane.repaint();
     }
 
     private JPanel createRulesPanel() {
         var panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
-        // Table
-        rulesModel = new DefaultTableModel(new String[]{"Pattern", "Browser", "Priority"}, 0) {
+        // Table — column 0 is the match position; row order is precedence.
+        rulesModel = new DefaultTableModel(new String[]{"#", "Pattern", "Browser"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
             }
         };
+        rulesSorter = new TableRowSorter<>(rulesModel);
         rulesTable = new JTable(rulesModel);
+        rulesTable.setRowSorter(rulesSorter);
         rulesTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        rulesTable.getColumnModel().getColumn(2).setPreferredWidth(60);
-        rulesTable.getColumnModel().getColumn(2).setMaxWidth(80);
+        rulesTable.getColumnModel().getColumn(0).setPreferredWidth(36);
+        rulesTable.getColumnModel().getColumn(0).setMaxWidth(48);
 
-        panel.add(new JScrollPane(rulesTable), BorderLayout.CENTER);
+        rulesScroll = new JScrollPane(rulesTable);
+        panel.add(rulesScroll, BorderLayout.CENTER);
 
-        // Buttons
-        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        // Search box
+        var searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        searchField = new JTextField(22);
+        var searchLabel = new JLabel("Search:");
+        searchLabel.setLabelFor(searchField);
+        searchField.setToolTipText("Filter rules by pattern or browser");
+        searchField.getDocument().addDocumentListener(docListener(this::applyRulesFilter));
+        searchPanel.add(searchLabel);
+        searchPanel.add(searchField);
+        panel.add(searchPanel, BorderLayout.NORTH);
+
+        // Buttons — one primary action, grouped reorder controls for power users
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
 
         var addBtn = new JButton("Add Rule");
         addBtn.addActionListener(e -> addRule());
+        SelectorDialog.applyAccent(addBtn);
 
         var deleteBtn = new JButton("Delete");
         deleteBtn.addActionListener(e -> deleteSelectedRule());
 
+        buttonPanel.add(addBtn);
+        buttonPanel.add(deleteBtn);
+
         if (advancedMode) {
+            buttonPanel.add(Box.createHorizontalStrut(12));
+
             var moveUpBtn = new JButton("Move Up");
             moveUpBtn.addActionListener(e -> moveRule(-1));
 
@@ -119,9 +148,6 @@ public class SettingsFrame extends JFrame {
             buttonPanel.add(moveUpBtn);
             buttonPanel.add(moveDownBtn);
         }
-
-        buttonPanel.add(addBtn);
-        buttonPanel.add(deleteBtn);
 
         panel.add(buttonPanel, BorderLayout.SOUTH);
 
@@ -207,8 +233,12 @@ public class SettingsFrame extends JFrame {
             var openSettingsBtn = new JButton("Open Windows Settings");
             openSettingsBtn.addActionListener(e -> registry.openDefaultAppsSettings());
 
-            var statusLabel = new JLabel(registry.isRegistered() ? "Registered" : "Not registered");
-            statusLabel.setForeground(registry.isRegistered() ? new Color(0, 150, 0) : Color.GRAY);
+            var registered = registry.isRegistered();
+            var statusLabel = new JLabel(registered ? "Registered" : "Not registered");
+            var green = UIManager.getColor("Actions.Green");
+            statusLabel.setForeground(registered
+                ? (green != null ? green : new Color(0, 150, 0))
+                : UIManager.getColor("Label.disabledForeground"));
 
             regPanel.add(registerBtn);
             regPanel.add(openSettingsBtn);
@@ -278,12 +308,35 @@ public class SettingsFrame extends JFrame {
 
     private void loadRules() {
         rulesModel.setRowCount(0);
-        for (var rule : db.getAllRules()) {
+        var rules = db.getAllRules();
+        for (int i = 0; i < rules.size(); i++) {
+            var rule = rules.get(i);
             var browserName = db.getBrowser(rule.browserId())
                 .map(Browser::name)
                 .orElse(rule.browserId());
-            rulesModel.addRow(new Object[]{rule.pattern(), browserName, rule.priority()});
+            rulesModel.addRow(new Object[]{i + 1, rule.pattern(), browserName});
         }
+        updateRulesEmptyState();
+        applyRulesFilter();
+    }
+
+    private void updateRulesEmptyState() {
+        if (rulesModel.getRowCount() == 0) {
+            var empty = new JPanel(new GridBagLayout());
+            var label = new JLabel("<html><center>No rules yet — links will prompt until you add one.<br><br>"
+                + "Add a rule to send known domains to the right browser automatically.</center></html>");
+            label.setForeground(UIManager.getColor("Label.disabledForeground"));
+            empty.add(label);
+            rulesScroll.setViewportView(empty);
+        } else {
+            rulesScroll.setViewportView(rulesTable);
+        }
+    }
+
+    private void applyRulesFilter() {
+        var text = searchField.getText().trim();
+        rulesSorter.setRowFilter(text.isEmpty() ? null
+            : RowFilter.regexFilter("(?i)" + java.util.regex.Pattern.quote(text), 1, 2));
     }
 
     private void loadBrowsers() {
@@ -307,63 +360,148 @@ public class SettingsFrame extends JFrame {
             return;
         }
 
-        var pattern = JOptionPane.showInputDialog(this,
-            "Enter URL pattern (e.g., *.google.com, github.com/*):",
-            "Add Rule",
-            JOptionPane.PLAIN_MESSAGE);
+        // One form with live validation and a match preview, instead of two
+        // blind modals.
+        var patternField = new JTextField(22);
+        var browserCombo = new JComboBox<>(browsers.toArray(new Browser[0]));
+        browserCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean sel, boolean focus) {
+                super.getListCellRendererComponent(list, value, index, sel, focus);
+                if (value instanceof Browser b) {
+                    setText(b.displayName());
+                    setIcon(Icons.forBrowser(b));
+                }
+                return this;
+            }
+        });
+        var preview = new JLabel(" ");
+        preview.setForeground(UIManager.getColor("Label.disabledForeground"));
 
-        if (pattern == null || pattern.isBlank()) return;
+        Runnable update = () -> {
+            var pattern = patternField.getText().trim();
+            var ok = PatternMatcher.isValidPattern(pattern);
+            patternField.putClientProperty("JComponent.outline",
+                pattern.isEmpty() || ok ? null : "error");
+            var browser = (Browser) browserCombo.getSelectedItem();
+            if (ok && browser != null) {
+                preview.setText("Matches e.g. " + sampleUrlFor(pattern) + "  →  " + browser.name().trim());
+            } else if (!pattern.isEmpty()) {
+                preview.setText("Invalid pattern — try *.example.org or github.com/*");
+            } else {
+                preview.setText(" ");
+            }
+        };
+        patternField.getDocument().addDocumentListener(docListener(update));
+        browserCombo.addActionListener(e -> update.run());
+        update.run();
 
-        var browserNames = browsers.stream().map(Browser::name).toArray(String[]::new);
-        var selected = (String) JOptionPane.showInputDialog(this,
-            "Select browser:",
-            "Add Rule",
-            JOptionPane.PLAIN_MESSAGE,
-            null,
-            browserNames,
-            browserNames[0]);
+        var form = new JPanel(new GridLayout(0, 1, 8, 8));
 
-        if (selected == null) return;
+        var patternRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        var patternLabel = new JLabel("URL pattern:");
+        patternLabel.setLabelFor(patternField);
+        patternRow.add(patternLabel);
+        patternRow.add(patternField);
+        form.add(patternRow);
 
-        var browser = browsers.stream()
-            .filter(b -> b.name().equals(selected))
-            .findFirst()
-            .orElse(null);
+        var browserRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        var browserLabel = new JLabel("Open with:");
+        browserLabel.setLabelFor(browserCombo);
+        browserRow.add(browserLabel);
+        browserRow.add(browserCombo);
+        form.add(browserRow);
 
-        if (browser != null) {
-            db.saveRule(new UrlRule(pattern, browser.id()));
-            loadRules();
+        var previewRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        previewRow.add(preview);
+        form.add(previewRow);
+
+        var result = JOptionPane.showConfirmDialog(this, form, "Add Rule",
+            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result != JOptionPane.OK_OPTION) return;
+
+        var pattern = patternField.getText().trim();
+        if (!PatternMatcher.isValidPattern(pattern)) {
+            JOptionPane.showMessageDialog(this,
+                "“" + pattern + "” is not a valid URL pattern. Use forms like *.example.org or github.com/*.",
+                "Invalid Pattern",
+                JOptionPane.WARNING_MESSAGE);
+            return;
         }
+
+        var browser = (Browser) browserCombo.getSelectedItem();
+        if (browser == null) return;
+
+        var existing = db.getAllRules().stream()
+            .filter(r -> r.pattern().equalsIgnoreCase(pattern))
+            .findFirst();
+        if (existing.isPresent() && existing.get().browserId().equals(browser.id())) {
+            JOptionPane.showMessageDialog(this,
+                "'" + pattern + "' already opens in " + browser.name().trim() + ".",
+                "Rule Exists",
+                JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        if (existing.isPresent()) {
+            var confirm = JOptionPane.showConfirmDialog(this,
+                "A rule for '" + pattern + "' already exists. Replace it?",
+                "Replace Rule",
+                JOptionPane.YES_NO_OPTION);
+            if (confirm != JOptionPane.YES_OPTION) return;
+        }
+
+        db.saveRule(new UrlRule(pattern, browser.id()));
+        loadRules();
     }
 
     private void deleteSelectedRule() {
-        var row = rulesTable.getSelectedRow();
-        if (row < 0) return;
+        int viewRow = rulesTable.getSelectedRow();
+        if (viewRow < 0) return;
+        int row = rulesTable.convertRowIndexToModel(viewRow);
 
         var rules = db.getAllRules();
-        if (row < rules.size()) {
-            db.deleteRule(rules.get(row).id());
+        if (row < 0 || row >= rules.size()) return;
+        var rule = rules.get(row);
+
+        var confirm = JOptionPane.showConfirmDialog(this,
+            "Delete rule '" + rule.pattern() + "'?",
+            "Confirm Delete",
+            JOptionPane.YES_NO_OPTION);
+        if (confirm == JOptionPane.YES_OPTION) {
+            db.deleteRule(rule.id());
             loadRules();
         }
     }
 
     private void moveRule(int direction) {
-        var row = rulesTable.getSelectedRow();
-        if (row < 0) return;
+        int viewRow = rulesTable.getSelectedRow();
+        if (viewRow < 0) return;
+        int row = rulesTable.convertRowIndexToModel(viewRow);
 
         var rules = db.getAllRules();
         var newRow = row + direction;
-        if (newRow < 0 || newRow >= rules.size()) return;
+        if (row < 0 || row >= rules.size() || newRow < 0 || newRow >= rules.size()) return;
 
-        // Swap priorities
-        var rule1 = rules.get(row);
-        var rule2 = rules.get(newRow);
+        // Row order is precedence: reorder, then renumber so the persisted
+        // priority matches exactly what the table shows.
+        var reordered = new ArrayList<>(rules);
+        var moved = reordered.remove(row);
+        reordered.add(newRow, moved);
 
-        db.saveRule(rule1.withPriority(rule2.priority()));
-        db.saveRule(rule2.withPriority(rule1.priority()));
+        int n = reordered.size();
+        for (int i = 0; i < n; i++) {
+            var rule = reordered.get(i);
+            int newPriority = n - i;
+            if (rule.priority() != newPriority) {
+                db.saveRule(rule.withPriority(newPriority));
+            }
+        }
 
         loadRules();
-        rulesTable.setRowSelectionInterval(newRow, newRow);
+        int newViewRow = rulesTable.convertRowIndexToView(newRow);
+        if (newViewRow >= 0) {
+            rulesTable.setRowSelectionInterval(newViewRow, newViewRow);
+        }
     }
 
     private void rescanBrowsers() {
@@ -374,18 +512,40 @@ public class SettingsFrame extends JFrame {
                 JOptionPane.WARNING_MESSAGE);
             return;
         }
-        db.clearBrowsers();
-        var browsers = browserDetector.detectBrowsers();
-        for (var browser : browsers) {
-            db.saveBrowser(browser);
-        }
-        if (advancedMode) {
-            loadBrowsers();
-        }
-        JOptionPane.showMessageDialog(this,
-            "Found " + browsers.size() + " browser(s)",
-            "Scan Complete",
-            JOptionPane.INFORMATION_MESSAGE);
+
+        // Run browser detection in background to avoid blocking UI
+        setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+
+        new SwingWorker<List<Browser>, Void>() {
+            @Override
+            protected List<Browser> doInBackground() {
+                return browserDetector.detectBrowsers();
+            }
+
+            @Override
+            protected void done() {
+                setCursor(Cursor.getDefaultCursor());
+                try {
+                    var browsers = get();
+                    db.clearBrowsers();
+                    for (var browser : browsers) {
+                        db.saveBrowser(browser);
+                    }
+                    if (advancedMode) {
+                        loadBrowsers();
+                    }
+                    JOptionPane.showMessageDialog(SettingsFrame.this,
+                        "Found " + browsers.size() + " browser(s)",
+                        "Scan Complete",
+                        JOptionPane.INFORMATION_MESSAGE);
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(SettingsFrame.this,
+                        "Error scanning browsers: " + e.getMessage(),
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 
     private void detectProfiles() {
@@ -394,17 +554,32 @@ public class SettingsFrame extends JFrame {
             .toList();
 
         int profileCount = 0;
+        int prunedCount = 0;
         for (var browser : browsers) {
             var profiles = profileDetector.detectProfiles(browser);
             for (var profile : profiles) {
                 db.saveBrowser(profile);
                 profileCount++;
             }
+
+            // Remove saved profiles that no longer exist on disk
+            var validIds = profiles.stream()
+                .map(Browser::id)
+                .collect(java.util.stream.Collectors.toSet());
+            for (var saved : db.getAllBrowsers()) {
+                if (saved.isProfile() && browser.id().equals(saved.parentBrowserId())
+                        && !validIds.contains(saved.id())) {
+                    db.deleteBrowser(saved.id());
+                    prunedCount++;
+                }
+            }
         }
 
         loadBrowsers();
+        var message = "Found " + profileCount + " profile(s)"
+            + (prunedCount > 0 ? "\nRemoved " + prunedCount + " stale profile(s)" : "");
         JOptionPane.showMessageDialog(this,
-            "Found " + profileCount + " profile(s)",
+            message,
             "Profile Detection Complete",
             JOptionPane.INFORMATION_MESSAGE);
     }
@@ -478,13 +653,7 @@ public class SettingsFrame extends JFrame {
             var id = name.toLowerCase().replaceAll("[^a-z0-9]", "-");
 
             // Detect incognito argument based on name
-            String incognitoArg = "--incognito";
-            var lowerName = name.toLowerCase();
-            if (lowerName.contains("firefox")) {
-                incognitoArg = "-private-window";
-            } else if (lowerName.contains("opera")) {
-                incognitoArg = "--private";
-            }
+            var incognitoArg = BrowserUtils.detectIncognitoArg(name);
 
             var browser = new Browser(id, name, path, path, null, incognitoArg, false, null, true);
             db.saveBrowser(browser);
@@ -540,20 +709,28 @@ public class SettingsFrame extends JFrame {
         var javaHome = Path.of(System.getProperty("java.home"));
 
         // For jpackage apps, java.home is inside: AppName/runtime
-        // So the exe is at: AppName/BrowserSwitch.exe (parent of runtime)
+        // So the exe is at: AppName/BrowserSelector.exe (parent of runtime)
         var runtimeParent = javaHome.getParent();
         if (runtimeParent != null) {
-            var jpackageExe = runtimeParent.resolve("BrowserSwitch.exe");
+            var jpackageExe = runtimeParent.resolve("BrowserSelector.exe");
             if (jpackageExe.toFile().exists()) {
                 return jpackageExe;
+            }
+            var legacyExe = runtimeParent.resolve("BrowserSwitch.exe"); // pre-1.8 app images
+            if (legacyExe.toFile().exists()) {
+                return legacyExe;
             }
         }
 
         // Try current working directory
         var userDir = System.getProperty("user.dir");
-        var exePath = Path.of(userDir, "BrowserSwitch.exe");
+        var exePath = Path.of(userDir, "BrowserSelector.exe");
         if (exePath.toFile().exists()) {
             return exePath;
+        }
+        var legacyLocal = Path.of(userDir, "BrowserSwitch.exe"); // pre-1.8 app images
+        if (legacyLocal.toFile().exists()) {
+            return legacyLocal;
         }
 
         // Fallback to java executable with jar
@@ -568,11 +745,7 @@ public class SettingsFrame extends JFrame {
     private void toggleAdvancedMode() {
         advancedMode = advancedModeCheck.isSelected();
         db.saveSetting(Setting.toggle(Setting.Toggle.ADVANCED_MODE, advancedMode));
-
-        JOptionPane.showMessageDialog(this,
-            "Please restart the application to apply changes.",
-            "Restart Required",
-            JOptionPane.INFORMATION_MESSAGE);
+        rebuildTabs();
     }
 
     private void updateThemeSettings() {
@@ -585,8 +758,7 @@ public class SettingsFrame extends JFrame {
         // Apply theme
         try {
             if (useSystem) {
-                // System theme detection is platform-specific
-                var isDark = UIManager.getSystemLookAndFeelClassName().toLowerCase().contains("dark");
+                var isDark = WindowsTheme.isSystemDark();
                 if (isDark) {
                     FlatDarkLaf.setup();
                 } else {
@@ -613,5 +785,18 @@ public class SettingsFrame extends JFrame {
 
     private void centerOnScreen() {
         setLocationRelativeTo(null);
+    }
+
+    private static javax.swing.event.DocumentListener docListener(Runnable r) {
+        return new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { r.run(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { r.run(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { r.run(); }
+        };
+    }
+
+    private static String sampleUrlFor(String pattern) {
+        var s = "https://" + (pattern.startsWith("*.") ? pattern.substring(2) : pattern);
+        return s.replace("/*", "/some-page").replace("*", "thing").replace("?", "x");
     }
 }

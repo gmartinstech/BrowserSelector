@@ -9,7 +9,7 @@
     <version>1.9.2</version>
     <packaging>jar</packaging>
 
-    <name>Browser Switch</name>
+    <name>Browser Selector</name>
     <description>Windows browser selector with domain-based rules</description>
 
     <properties>
@@ -37,10 +37,10 @@
             <version>5.14.0</version>
         </dependency>
 
-        <!-- SLF4J simple implementation to silence SQLite JDBC warnings -->
+        <!-- SLF4J NOP implementation - discards all logging (lighter than slf4j-simple) -->
         <dependency>
             <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
+            <artifactId>slf4j-nop</artifactId>
             <version>2.0.9</version>
         </dependency>
 
@@ -88,6 +88,12 @@
                         </manifest>
                     </archive>
                 </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
             </plugin>
 
             <plugin>

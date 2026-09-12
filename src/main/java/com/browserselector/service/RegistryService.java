@@ -7,8 +7,13 @@ import java.nio.file.Path;
 
 public final class RegistryService {
 
-    private static final String APP_NAME = "BrowserSwitch";
+    /** Registry key / ProgId - no spaces: this becomes part of key paths. */
+    private static final String APP_KEY = "BrowserSelector";
+    /** Display name shown in Windows Settings and RegisteredApplications. */
+    private static final String APP_DISPLAY_NAME = "Browser Selector";
     private static final String APP_DESCRIPTION = "Choose which browser to open links with";
+    /** Keys written by pre-1.8 builds under the old name; cleaned up on register. */
+    private static final String LEGACY_KEY = "BrowserSwitch";
 
     private static final WinReg.HKEY HKCU = WinReg.HKEY_CURRENT_USER;
 
@@ -17,9 +22,9 @@ public final class RegistryService {
         var command = "\"" + exePathStr + "\" \"%1\"";
 
         // Register URL Protocol handler
-        var classesPath = "SOFTWARE\\Classes\\" + APP_NAME;
+        var classesPath = "SOFTWARE\\Classes\\" + APP_KEY;
         createKey(classesPath);
-        setValue(classesPath, "", "URL:" + APP_NAME + " Protocol");
+        setValue(classesPath, "", "URL:" + APP_DISPLAY_NAME + " Protocol");
         setValue(classesPath, "URL Protocol", "");
 
         // Set command
@@ -33,26 +38,26 @@ public final class RegistryService {
         setValue(iconPath, "", exePathStr + ",0");
 
         // Register application capabilities
-        var capabilitiesPath = "SOFTWARE\\" + APP_NAME + "\\Capabilities";
+        var capabilitiesPath = "SOFTWARE\\" + APP_KEY + "\\Capabilities";
         createKey(capabilitiesPath);
-        setValue(capabilitiesPath, "ApplicationName", APP_NAME);
+        setValue(capabilitiesPath, "ApplicationName", APP_DISPLAY_NAME);
         setValue(capabilitiesPath, "ApplicationDescription", APP_DESCRIPTION);
 
         // Register URL associations
         var urlAssocPath = capabilitiesPath + "\\URLAssociations";
         createKey(urlAssocPath);
-        setValue(urlAssocPath, "http", APP_NAME);
-        setValue(urlAssocPath, "https", APP_NAME);
+        setValue(urlAssocPath, "http", APP_KEY);
+        setValue(urlAssocPath, "https", APP_KEY);
 
         // Register in RegisteredApplications
         var registeredAppsPath = "SOFTWARE\\RegisteredApplications";
         createKey(registeredAppsPath);
-        setValue(registeredAppsPath, APP_NAME, "SOFTWARE\\" + APP_NAME + "\\Capabilities");
+        setValue(registeredAppsPath, APP_DISPLAY_NAME, "SOFTWARE\\" + APP_KEY + "\\Capabilities");
 
         // Also register in StartMenuInternet for visibility
-        var startMenuPath = "SOFTWARE\\Clients\\StartMenuInternet\\" + APP_NAME;
+        var startMenuPath = "SOFTWARE\\Clients\\StartMenuInternet\\" + APP_KEY;
         createKey(startMenuPath);
-        setValue(startMenuPath, "", APP_NAME);
+        setValue(startMenuPath, "", APP_DISPLAY_NAME);
 
         var startMenuCommandPath = startMenuPath + "\\shell\\open\\command";
         createKey(startMenuCommandPath);
@@ -64,22 +69,36 @@ public final class RegistryService {
 
         var startMenuCapPath = startMenuPath + "\\Capabilities";
         createKey(startMenuCapPath);
-        setValue(startMenuCapPath, "ApplicationName", APP_NAME);
+        setValue(startMenuCapPath, "ApplicationName", APP_DISPLAY_NAME);
         setValue(startMenuCapPath, "ApplicationDescription", APP_DESCRIPTION);
 
         var startMenuUrlPath = startMenuCapPath + "\\URLAssociations";
         createKey(startMenuUrlPath);
-        setValue(startMenuUrlPath, "http", APP_NAME);
-        setValue(startMenuUrlPath, "https", APP_NAME);
+        setValue(startMenuUrlPath, "http", APP_KEY);
+        setValue(startMenuUrlPath, "https", APP_KEY);
+
+        unregisterLegacy();
+    }
+
+    /** Removes registration keys left by pre-1.8 builds under the old name. */
+    private void unregisterLegacy() {
+        deleteKey("SOFTWARE\\Classes\\" + LEGACY_KEY);
+        deleteKey("SOFTWARE\\" + LEGACY_KEY);
+        deleteKey("SOFTWARE\\Clients\\StartMenuInternet\\" + LEGACY_KEY);
+        try {
+            Advapi32Util.registryDeleteValue(HKCU, "SOFTWARE\\RegisteredApplications", LEGACY_KEY);
+        } catch (Exception e) {
+            // No legacy registration present
+        }
     }
 
     public void unregister() {
-        deleteKey("SOFTWARE\\Classes\\" + APP_NAME);
-        deleteKey("SOFTWARE\\" + APP_NAME);
-        deleteKey("SOFTWARE\\Clients\\StartMenuInternet\\" + APP_NAME);
+        deleteKey("SOFTWARE\\Classes\\" + APP_KEY);
+        deleteKey("SOFTWARE\\" + APP_KEY);
+        deleteKey("SOFTWARE\\Clients\\StartMenuInternet\\" + APP_KEY);
 
         try {
-            Advapi32Util.registryDeleteValue(HKCU, "SOFTWARE\\RegisteredApplications", APP_NAME);
+            Advapi32Util.registryDeleteValue(HKCU, "SOFTWARE\\RegisteredApplications", APP_DISPLAY_NAME);
         } catch (Exception e) {
             // Key may not exist
         }
@@ -87,8 +106,8 @@ public final class RegistryService {
 
     public boolean isRegistered() {
         try {
-            return Advapi32Util.registryKeyExists(HKCU, "SOFTWARE\\Classes\\" + APP_NAME) &&
-                   Advapi32Util.registryKeyExists(HKCU, "SOFTWARE\\" + APP_NAME + "\\Capabilities");
+            return Advapi32Util.registryKeyExists(HKCU, "SOFTWARE\\Classes\\" + APP_KEY) &&
+                   Advapi32Util.registryKeyExists(HKCU, "SOFTWARE\\" + APP_KEY + "\\Capabilities");
         } catch (Exception e) {
             return false;
         }

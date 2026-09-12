@@ -4,14 +4,16 @@ import com.browserselector.model.Browser;
 import com.browserselector.model.Setting;
 import com.browserselector.service.BrowserDetector;
 import com.browserselector.service.DatabaseService;
+import com.browserselector.service.ProfileDetector;
 import com.browserselector.ui.SelectorDialog;
 import com.browserselector.ui.SettingsFrame;
+import com.browserselector.util.BrowserUtils;
 import com.browserselector.util.UrlUtils;
+import com.browserselector.util.WindowsTheme;
 import com.formdev.flatlaf.FlatDarkLaf;
 import com.formdev.flatlaf.FlatLightLaf;
 
 import javax.swing.*;
-import java.io.IOException;
 import java.nio.file.Path;
 
 public class Main {
@@ -33,6 +35,14 @@ public class Main {
                 for (var browser : browsers) {
                     db.saveBrowser(browser);
                 }
+
+                // Auto-detect profiles for each detected browser
+                var profileDetector = new ProfileDetector();
+                for (var browser : browsers) {
+                    for (var profile : profileDetector.detectProfiles(browser)) {
+                        db.saveBrowser(profile);
+                    }
+                }
             } else {
                 // Demo mode for non-Windows (testing)
                 addDemoBrowsers(db);
@@ -46,30 +56,30 @@ public class Main {
             } else {
                 // URL was passed - check for matching rule or show selector
                 var url = args[0];
-                System.out.println("[BrowserSwitch] Received URL: " + url);
+                System.out.println("[BrowserSelector] Received URL: " + url);
 
                 // Validate URL
                 if (!UrlUtils.isValidUrl(url)) {
                     url = UrlUtils.normalizeUrl(url);
-                    System.out.println("[BrowserSwitch] Normalized URL: " + url);
+                    System.out.println("[BrowserSelector] Normalized URL: " + url);
                 }
 
                 // Check for existing rule
                 var matchingRule = db.findMatchingRule(url);
                 if (matchingRule.isPresent()) {
                     var rule = matchingRule.get();
-                    System.out.println("[BrowserSwitch] Found matching rule: " + rule.pattern() + " -> " + rule.browserId());
+                    System.out.println("[BrowserSelector] Found matching rule: " + rule.pattern() + " -> " + rule.browserId());
                     var browser = db.getBrowser(rule.browserId());
 
                     if (browser.isPresent()) {
-                        System.out.println("[BrowserSwitch] Launching: " + browser.get().name());
+                        System.out.println("[BrowserSelector] Launching: " + browser.get().name());
                         launchBrowser(browser.get(), url);
                         return;
                     }
                 }
 
                 // No matching rule - show selector
-                System.out.println("[BrowserSwitch] No matching rule, showing selector dialog...");
+                System.out.println("[BrowserSelector] No matching rule, showing selector dialog...");
                 var dialog = new SelectorDialog(url);
                 dialog.setVisible(true);
             }
@@ -104,48 +114,12 @@ public class Main {
     }
 
     private static boolean isSystemDarkMode() {
-        try {
-            // Check Windows registry for dark mode setting
-            var process = Runtime.getRuntime().exec(new String[]{
-                "reg", "query",
-                "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
-                "/v", "AppsUseLightTheme"
-            });
-
-            var reader = new java.io.BufferedReader(
-                new java.io.InputStreamReader(process.getInputStream()));
-
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.contains("AppsUseLightTheme")) {
-                    // Value of 0 means dark mode, 1 means light mode
-                    return line.contains("0x0");
-                }
-            }
-        } catch (Exception e) {
-            // Ignore and default to light mode
-        }
-        return false;
+        if (!IS_WINDOWS) return false;
+        return WindowsTheme.isSystemDark();
     }
 
-    private static void launchBrowser(com.browserselector.model.Browser browser, String url) {
-        try {
-            var command = new java.util.ArrayList<String>();
-            command.add(browser.exePath().toString());
-
-            if (browser.profileArg() != null && !browser.profileArg().isBlank()) {
-                command.add(browser.profileArg());
-            }
-
-            command.add(url);
-
-            new ProcessBuilder(command).start();
-        } catch (IOException e) {
-            JOptionPane.showMessageDialog(null,
-                "Failed to launch browser: " + e.getMessage(),
-                "Error",
-                JOptionPane.ERROR_MESSAGE);
-        }
+    private static void launchBrowser(Browser browser, String url) {
+        BrowserUtils.launch(browser, url, null);
     }
 
     private static void addDemoBrowsers(DatabaseService db) {
