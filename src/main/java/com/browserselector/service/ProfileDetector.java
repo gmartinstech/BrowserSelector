@@ -78,7 +78,7 @@ public final class ProfileDetector {
      * taking variants (Canary/Beta/Dev/Nightly/GX) into account. The variant is
      * inferred first from the executable path, then from the browser name/id.
      */
-    static String chromiumUserDataDir(Browser parent) {
+    public static String chromiumUserDataDir(Browser parent) {
         var exe = parent.exePath().toString().toLowerCase().replace('/', '\\');
         var marker = (parent.name() + " " + parent.id()).toLowerCase();
 
@@ -219,6 +219,119 @@ public final class ProfileDetector {
     /** Returns the profile directory recorded as last used, or null. */
     static String parseLastUsed(String json) {
         return extractStringField(json, "last_used");
+    }
+
+    /** Visual identity of a Chromium profile: avatar picture and Chrome's own badge color. */
+    public record ProfileVisuals(Path avatarPath, Integer highlightColor) {}
+
+    /**
+     * Resolves the avatar picture (Google Profile Picture.png, written by
+     * Chromium for signed-in profiles) and the profile highlight color Chrome
+     * itself uses for the avatar badge, read from Local State. Both are null
+     * when the platform, browser, or data does not provide them.
+     */
+    public static ProfileVisuals chromiumProfileVisuals(Browser profile) {
+        var localAppData = System.getenv("LOCALAPPDATA");
+        if (localAppData == null || profile.profileArg() == null
+                || !profile.profileArg().startsWith("--profile-directory=")) {
+            return new ProfileVisuals(null, null);
+        }
+        var profileDir = profile.profileArg().substring("--profile-directory=".length()).trim();
+        if (profileDir.isEmpty()) {
+            return new ProfileVisuals(null, null);
+        }
+
+        var userDataDir = chromiumUserDataDir(profile);
+        if (userDataDir == null) {
+            return new ProfileVisuals(null, null);
+        }
+
+        var avatarPath = Path.of(localAppData, userDataDir, "User Data", profileDir, "Google Profile Picture.png");
+        if (!Files.exists(avatarPath)) {
+            avatarPath = null;
+        }
+
+        Integer highlight = null;
+        try {
+            var localStatePath = Path.of(localAppData, userDataDir, "User Data", "Local State");
+            if (Files.exists(localStatePath)) {
+                highlight = extractHighlightColor(Files.readString(localStatePath), profileDir);
+            }
+        } catch (IOException e) {
+            // Color stays unresolved; the badge falls back to a hashed hue.
+        }
+        return new ProfileVisuals(avatarPath, highlight);
+    }
+
+    /**
+     * Extracts profile_highlight_color for one profile directory from the
+     * "profile" -> "info_cache" object of a Local State JSON document.
+     * Package-private so tests can pin the parsing.
+     */
+    static Integer extractHighlightColor(String json, String profileDir) {
+        int cacheStart = json.indexOf("\"info_cache\"");
+        if (cacheStart < 0) {
+            return null;
+        }
+        int objStart = json.indexOf('{', cacheStart + 12);
+        if (objStart < 0) {
+            return null;
+        }
+        int objEnd = matchingBrace(json, objStart);
+        if (objEnd < 0) {
+            return null;
+        }
+        String obj = json.substring(objStart + 1, objEnd);
+
+        int pos = 0;
+        while (true) {
+            int keyStart = obj.indexOf('"', pos);
+            if (keyStart < 0) break;
+            int keyEnd = stringEnd(obj, keyStart);
+            if (keyEnd < 0) break;
+            String dir = unescape(obj.substring(keyStart + 1, keyEnd - 1));
+
+            int colon = obj.indexOf(':', keyEnd);
+            if (colon < 0) break;
+            int valueStart = colon + 1;
+            while (valueStart < obj.length() && obj.charAt(valueStart) == ' ') valueStart++;
+            if (valueStart >= obj.length() || obj.charAt(valueStart) != '{') break;
+            int entryEnd = matchingBrace(obj, valueStart);
+            if (entryEnd < 0) break;
+
+            if (dir.equals(profileDir)) {
+                return extractIntField(obj.substring(valueStart + 1, entryEnd), "profile_highlight_color");
+            }
+            pos = entryEnd + 1;
+        }
+        return null;
+    }
+
+    /** Extracts the integer value of a "field": <number> pair inside {@code json}. */
+    private static Integer extractIntField(String json, String field) {
+        int idx = json.indexOf("\"" + field + "\"");
+        if (idx < 0) {
+            return null;
+        }
+        int colon = json.indexOf(':', idx + field.length() + 2);
+        if (colon < 0) {
+            return null;
+        }
+        int valueStart = colon + 1;
+        while (valueStart < json.length() && json.charAt(valueStart) == ' ') valueStart++;
+        int end = valueStart;
+        if (end < json.length() && (json.charAt(end) == '-' || Character.isDigit(json.charAt(end)))) {
+            end++;
+            while (end < json.length() && Character.isDigit(json.charAt(end))) end++;
+        }
+        if (end == valueStart) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(json.substring(valueStart, end));
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /** Index of the '}' matching the '{' at {@code open}, honoring JSON strings. */
