@@ -129,20 +129,14 @@ public class SelectorDialog extends JDialog {
         pileList.setVisibleRowCount(3);
         pileList.setCellRenderer(new PileRowRenderer());
 
-        // "Always use for" is gated on exactly one selected link; the pattern
-        // follows that link's domain (spec: no silent "applies to first").
+        // "Always use for" is gated on exactly one selected link that already
+        // has an assignment (no browser -> no rule to save); the pattern follows
+        // that link's domain (spec: no silent "applies to first").
         pileList.addListSelectionListener(e -> {
             if (e.getValueIsAdjusting()) {
                 return;
             }
-            var selected = pileList.getSelectedIndices();
-            boolean one = selected.length == 1;
-            rememberCheckbox.setEnabled(one);
-            patternField.setEnabled(one && rememberCheckbox.isSelected());
-            if (one) {
-                patternField.setText(PatternMatcher.domainToPattern(pile.entries().get(selected[0]).domain()));
-                validatePattern();
-            }
+            updateRememberGate();
         });
 
         var scrollPane = new JScrollPane(pileList);
@@ -285,10 +279,35 @@ public class SelectorDialog extends JDialog {
             pileList.setListData(pile.entries().toArray(new PileModel.Entry[0]));
         }
         openBtn.setText(!pileMode ? "Open" : "Open (" + pile.assignedCount() + " of " + pile.size() + ")");
+        // Run the remember gate once per refresh: setListData with an already-
+        // empty selection fires no selection event, so entering pile mode would
+        // otherwise leave the freshly built checkbox enabled with 0 rows selected.
+        if (pileMode) {
+            updateRememberGate();
+        }
         // The count label widens the action cluster; re-pack so the "Always use"
         // commitment row keeps its width instead of wrapping the pattern field
         // out of view (pack() is a no-op size-wise while the label is narrow).
         pack();
+    }
+
+    /**
+     * Pile-mode gate for "Always use for": savable only when exactly one link is
+     * selected AND that link already has an assigned browser (no browser -> no
+     * rule to save). The pattern field follows that link's domain. Runs on every
+     * selection change and once per pile refresh, so the gate state is correct
+     * even when data changes fire no selection event.
+     */
+    private void updateRememberGate() {
+        var selected = pileList.getSelectedIndices();
+        var entry = selected.length == 1 ? pile.entries().get(selected[0]) : null;
+        boolean savable = entry != null && entry.assigned() != null;
+        rememberCheckbox.setEnabled(savable);
+        patternField.setEnabled(savable && rememberCheckbox.isSelected());
+        if (savable) {
+            patternField.setText(PatternMatcher.domainToPattern(entry.domain()));
+            validatePattern();
+        }
     }
 
     private void setupKeyBindings() {
@@ -429,6 +448,29 @@ public class SelectorDialog extends JDialog {
 
     /** Open all assigned links, keep unassigned rows; collect failures, report once. */
     private void commitPile() {
+        // A ticked "Always use for" is only reachable with exactly one selected,
+        // assigned row (see updateRememberGate); save its rule before dispatching
+        // — never silently drop a ticked box. Invalid pattern: the same loud
+        // dialog launchSelected uses, blocking only this commit action.
+        if (pileMode && rememberCheckbox.isSelected()) {
+            var selected = pileList.getSelectedIndices();
+            var entry = selected.length == 1 ? pile.entries().get(selected[0]) : null;
+            if (entry != null && entry.assigned() != null) {
+                var pattern = patternField.getText().trim();
+                if (!PatternMatcher.isValidPattern(pattern)) {
+                    JOptionPane.showMessageDialog(this,
+                        "“" + pattern + "” is not a valid URL pattern.\n"
+                        + "Use forms like *.example.org or github.com/*,\n"
+                        + "or untick \u201CAlways use for\u201D to open without saving.",
+                        "Invalid Pattern",
+                        JOptionPane.WARNING_MESSAGE);
+                    patternField.requestFocusInWindow();
+                    return;
+                }
+                db.saveRule(new UrlRule(pattern, entry.assigned().id()));
+                confirmSaved(pattern, entry.assigned());
+            }
+        }
         var drained = pile.drainAssigned();
         var failures = new ArrayList<String>();
         for (var entry : drained) {
