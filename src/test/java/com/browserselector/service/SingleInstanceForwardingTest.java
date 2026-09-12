@@ -18,10 +18,11 @@ import static org.junit.jupiter.api.Assertions.*;
 /** Forwarding contract over real loopback sockets, all in one JVM. */
 class SingleInstanceForwardingTest {
 
-    /** Test-only port — never the production constant, so parallel runs never collide.
-     *  (47931 from the original brief sits in a Windows reserved range on the dev host
-     *  and can never bind; 39999 is outside it and below the dynamic port range.) */
-    private static final int PORT = 39999;
+    /** Test-only port — must never equal the production constant (a test binding the
+     *  prod port would forward to a real running app), and must not collide with
+     *  parallel runs. 38931 binds on the dev host, clear of the Hyper-V/WSL
+     *  bind-exclusion band (~44900-48700). */
+    private static final int PORT = 38931;
 
     @AfterEach
     void closeHost() throws Exception {

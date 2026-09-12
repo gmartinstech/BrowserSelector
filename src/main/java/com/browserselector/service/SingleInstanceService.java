@@ -20,7 +20,10 @@ import java.util.logging.Logger;
  */
 public final class SingleInstanceService {
 
-    public static final int DEFAULT_PORT = 47517;
+    /** Fixed localhost lock/forwarding port. Chosen below ~44000 to stay clear of
+     *  Hyper-V/WSL dynamic bind-exclusion bands (observed ~44900-48700 on Windows 11
+     *  hosts; the band moves across reboots), which would silently break binding. */
+    public static final int DEFAULT_PORT = 39999;
     private static final int CONNECT_TIMEOUT_MS = 250;
     private static final Logger LOG = Logger.getLogger(SingleInstanceService.class.getName());
 
