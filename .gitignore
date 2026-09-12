@@ -34,3 +34,5 @@ dist/
 
 # Claude Code
 .claude/
+# Impeccable local artifacts (critique archives, screenshots)
+.impeccable/
