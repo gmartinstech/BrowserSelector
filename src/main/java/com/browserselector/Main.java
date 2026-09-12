@@ -5,6 +5,7 @@ import com.browserselector.model.Setting;
 import com.browserselector.service.BrowserDetector;
 import com.browserselector.service.DatabaseService;
 import com.browserselector.service.ProfileDetector;
+import com.browserselector.service.SingleInstanceService;
 import com.browserselector.ui.SelectorDialog;
 import com.browserselector.ui.SettingsFrame;
 import com.browserselector.util.BrowserUtils;
@@ -14,20 +15,31 @@ import com.formdev.flatlaf.FlatDarkLaf;
 import com.formdev.flatlaf.FlatLightLaf;
 
 import javax.swing.*;
+import java.awt.Window;
 import java.nio.file.Path;
 
 public class Main {
 
     private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
 
-    public static void main(String[] args) {
-        // Set up look and feel
-        setupTheme();
+    public record Payload(String type, String value) {}
 
-        // Initialize database
+    public static void main(String[] args) {
+        var payload = toPayload(args);
+
+        // Forward-or-host first: a second process must exit in milliseconds,
+        // before any L&F, database, or UI work (spec: startup flow).
+        var outcome = SingleInstanceService.acquire(payload.type(), payload.value(),
+            (type, value) -> SwingUtilities.invokeLater(() -> dispatch(type, value)));
+        if (outcome instanceof SingleInstanceService.Forwarded) {
+            return; // delivered to the host; this process is done
+        }
+
+        // We are the host process.
+        setupTheme();
         var db = DatabaseService.getInstance();
 
-        // First run: scan for browsers
+        // First run: scan for browsers (verbatim from the previous main)
         if (db.getAllBrowsers().isEmpty()) {
             if (IS_WINDOWS) {
                 var detector = new BrowserDetector();
@@ -36,7 +48,6 @@ public class Main {
                     db.saveBrowser(browser);
                 }
 
-                // Auto-detect profiles for each detected browser
                 var profileDetector = new ProfileDetector();
                 for (var browser : browsers) {
                     for (var profile : profileDetector.detectProfiles(browser)) {
@@ -44,46 +55,81 @@ public class Main {
                     }
                 }
             } else {
-                // Demo mode for non-Windows (testing)
                 addDemoBrowsers(db);
             }
         }
 
-        SwingUtilities.invokeLater(() -> {
-            if (args.length == 0 || args[0].equals("--settings")) {
-                // Open settings window
-                new SettingsFrame().setVisible(true);
-            } else {
-                // URL was passed - check for matching rule or show selector
-                var url = args[0];
-                System.out.println("[BrowserSelector] Received URL: " + url);
+        SwingUtilities.invokeLater(() -> dispatch(payload.type(), payload.value()));
+        startLingerWatchdog();
+    }
 
-                // Validate URL
-                if (!UrlUtils.isValidUrl(url)) {
-                    url = UrlUtils.normalizeUrl(url);
-                    System.out.println("[BrowserSelector] Normalized URL: " + url);
-                }
+    /** Args to wire payload: no args or --settings opens/focuses Settings; anything else is a URL. */
+    static Payload toPayload(String[] args) {
+        if (args.length == 0 || args[0].equals("--settings")) {
+            return new Payload("settings", "");
+        }
+        var url = args[0];
+        if (!UrlUtils.isValidUrl(url)) {
+            url = UrlUtils.normalizeUrl(url);
+        }
+        return new Payload("url", url);
+    }
 
-                // Check for existing rule
-                var matchingRule = db.findMatchingRule(url);
-                if (matchingRule.isPresent()) {
-                    var rule = matchingRule.get();
-                    System.out.println("[BrowserSelector] Found matching rule: " + rule.pattern() + " -> " + rule.browserId());
-                    var browser = db.getBrowser(rule.browserId());
+    /** EDT-only. Routes one payload — ours at startup, or forwarded from a second process. */
+    private static void dispatch(String type, String value) {
+        if (type.equals("settings")) {
+            SettingsFrame.focusOrCreate();
+            return;
+        }
+        handleUrl(value);
+    }
 
-                    if (browser.isPresent()) {
-                        System.out.println("[BrowserSelector] Launching: " + browser.get().name());
-                        launchBrowser(browser.get(), url);
-                        return;
-                    }
-                }
+    private static void handleUrl(String url) {
+        System.out.println("[BrowserSelector] Received URL: " + url);
 
-                // No matching rule - show selector
-                System.out.println("[BrowserSelector] No matching rule, showing selector dialog...");
-                var dialog = new SelectorDialog(url);
-                dialog.setVisible(true);
+        // Invalid on receipt: drop and log, host keeps serving (spec: error handling)
+        if (!UrlUtils.isValidUrl(url)) {
+            System.out.println("[BrowserSelector] Dropped invalid URL: " + url);
+            return;
+        }
+
+        var db = DatabaseService.getInstance();
+
+        // Rule-matched links never enter the pile — decide once, never ask again.
+        var matchingRule = db.findMatchingRule(url);
+        if (matchingRule.isPresent()) {
+            var rule = matchingRule.get();
+            System.out.println("[BrowserSelector] Found matching rule: " + rule.pattern() + " -> " + rule.browserId());
+            var browser = db.getBrowser(rule.browserId());
+            if (browser.isPresent()) {
+                System.out.println("[BrowserSelector] Launching: " + browser.get().name());
+                BrowserUtils.launch(browser.get(), url, null);
+                return;
+            }
+        }
+
+        System.out.println("[BrowserSelector] No matching rule, showing selector dialog...");
+        new SelectorDialog(url).setVisible(true); // Task 4 swaps this to SelectorDialog.enqueue(url)
+    }
+
+    /**
+     * The host lives while any window is visible, plus a 500 ms linger for
+     * near-simultaneous stragglers; a forwarded link arriving during the linger
+     * opens a window and resets the clock (spec: "Host lifecycle").
+     */
+    private static void startLingerWatchdog() {
+        var lastVisible = new long[]{System.currentTimeMillis()};
+        var timer = new javax.swing.Timer(150, e -> {
+            boolean anyVisible = java.util.Arrays.stream(Window.getWindows()).anyMatch(Window::isVisible);
+            if (anyVisible) {
+                lastVisible[0] = System.currentTimeMillis();
+                return;
+            }
+            if (System.currentTimeMillis() - lastVisible[0] > 500) {
+                System.exit(0);
             }
         });
+        timer.start();
     }
 
     private static void setupTheme() {
