@@ -109,7 +109,7 @@ public class Main {
         }
 
         System.out.println("[BrowserSelector] No matching rule, showing selector dialog...");
-        new SelectorDialog(url).setVisible(true); // Task 4 swaps this to SelectorDialog.enqueue(url)
+        SelectorDialog.enqueue(url);
     }
 
     /**

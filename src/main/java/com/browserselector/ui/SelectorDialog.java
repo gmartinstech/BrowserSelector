@@ -32,6 +32,13 @@ public class SelectorDialog extends JDialog {
     private JTextField patternField;
     private boolean shiftPressed = false;
 
+    private final PileModel pile = new PileModel();
+    private JList<PileModel.Entry> pileList;
+    private static SelectorDialog current;
+    private String highlightUrl;
+    private boolean pileMode;
+    private JButton openBtn;
+
     public SelectorDialog(String url) {
         super(createOwnerFrame(), "Select Browser", true);
         this.ownerFrame = (JFrame) getOwner();
@@ -41,19 +48,26 @@ public class SelectorDialog extends JDialog {
         this.browsers = db.getEnabledBrowsers();
         this.showIncognito = db.getToggle(Setting.Toggle.SHOW_INCOGNITO, true);
 
+        // This dialog's own link is pile row 1 — the picker opens as a one-row
+        // pile (single-link mode), so arrivals can append without any migration.
+        pile.add(url);
+
         initUI();
-        setupKeyBindings();
-        centerOnScreen();
 
         // Dispose owner frame when dialog closes
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosed(WindowEvent e) {
+                if (current == SelectorDialog.this) {
+                    current = null;
+                }
                 if (ownerFrame != null) {
                     ownerFrame.dispose();
                 }
             }
         });
+
+        current = this;
     }
 
     /**
@@ -77,18 +91,48 @@ public class SelectorDialog extends JDialog {
     private void initUI() {
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setResizable(false);
+        buildContentPane();
+        setupKeyBindings();
+        addGlobalKeyListener();
+        centerOnScreen();
+        refreshPileList();
+        validatePattern();
+    }
 
+    /** NORTH swaps with pile mode; CENTER and SOUTH are today's blocks, verbatim. */
+    private void buildContentPane() {
         var panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(new EmptyBorder(15, 15, 12, 15));
+        panel.add(pile.singleLinkMode() ? buildUrlHeader() : buildPileHeader(), BorderLayout.NORTH);
+        panel.add(buildBrowserCenter(), BorderLayout.CENTER);
+        panel.add(buildSouth(), BorderLayout.SOUTH);
+        setContentPane(panel);
+        pack();
+        setMinimumSize(new Dimension(400, 300));
+    }
 
+    private JLabel buildUrlHeader() {
         // URL display — keep the head (scheme + domain) and the tail (where
         // the specific target lives); elide the middle. Full URL on tooltip.
         var urlLabel = new JLabel(middleTruncate(url, 64));
         urlLabel.setFont(urlLabel.getFont().deriveFont(Font.PLAIN, 11f));
         urlLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
         urlLabel.setToolTipText(url);
-        panel.add(urlLabel, BorderLayout.NORTH);
+        return urlLabel;
+    }
 
+    /** Pile-mode NORTH: the links list replaces the URL label. */
+    private JScrollPane buildPileHeader() {
+        pileList = new JList<>();
+        pileList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        pileList.setVisibleRowCount(3);
+        pileList.setCellRenderer(new PileRowRenderer());
+        var scrollPane = new JScrollPane(pileList);
+        scrollPane.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
+        return scrollPane;
+    }
+
+    private JScrollPane buildBrowserCenter() {
         // Browser list
         browserList = new JList<>(browsers.toArray(new Browser[0]));
         browserList.setCellRenderer(new BrowserListRenderer());
@@ -107,8 +151,10 @@ public class SelectorDialog extends JDialog {
 
         var scrollPane = new JScrollPane(browserList);
         scrollPane.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
-        panel.add(scrollPane, BorderLayout.CENTER);
+        return scrollPane;
+    }
 
+    private JPanel buildSouth() {
         // South stack: keyboard hint, separator, commitment | actions
         var south = new JPanel();
         south.setLayout(new BoxLayout(south, BoxLayout.Y_AXIS));
@@ -153,7 +199,7 @@ public class SelectorDialog extends JDialog {
         var cancelBtn = new JButton("Cancel");
         cancelBtn.addActionListener(e -> dispose());
 
-        var openBtn = new JButton("Open");
+        openBtn = new JButton("Open");
         openBtn.addActionListener(e -> launchSelected());
         getRootPane().setDefaultButton(openBtn);
         applyAccent(openBtn);
@@ -164,15 +210,47 @@ public class SelectorDialog extends JDialog {
         bottomPanel.add(actions, BorderLayout.EAST);
 
         south.add(bottomPanel);
-        panel.add(south, BorderLayout.SOUTH);
+        return south;
+    }
 
-        // Shift indicator
-        addGlobalKeyListener();
+    /** Host-side entry point for every prompt-worthy link (spec: "Arrivals"). */
+    public static void enqueue(String url) {
+        if (current != null && current.isDisplayable()) {
+            current.addPileEntry(url);
+            return;
+        }
+        current = new SelectorDialog(url);
+        current.setVisible(true);
+    }
 
-        setContentPane(panel);
-        pack();
-        setMinimumSize(new Dimension(400, 300));
-        validatePattern();
+    private void addPileEntry(String url) {
+        pile.add(url);
+        if (pile.size() == 2) {
+            transitionToPileMode();
+        }
+        highlightUrl = url;
+        refreshPileList();
+        var settle = new javax.swing.Timer(1200, e -> {
+            highlightUrl = null;
+            pileList.repaint();
+        });
+        settle.setRepeats(false);
+        settle.start();
+        // No toFront(), no requestFocus(): arrivals never steal focus (spec).
+    }
+
+    private void transitionToPileMode() {
+        pileMode = true; // one-way: Delete may shrink the pile to one row, but the
+                         // assign/commit contract must survive (see Task 5 routing)
+        buildContentPane(); // NORTH now renders the links list instead of the URL label
+    }
+
+    private void refreshPileList() {
+        setTitle(!pileMode ? "Select Browser"
+            : "Select Browsers — " + pile.size() + (pile.size() == 1 ? " link" : " links"));
+        if (pileList != null) {
+            pileList.setListData(pile.entries().toArray(new PileModel.Entry[0]));
+        }
     }
 
     private void setupKeyBindings() {
@@ -294,7 +372,7 @@ public class SelectorDialog extends JDialog {
 
     private void openSettings() {
         dispose();
-        SwingUtilities.invokeLater(() -> new SettingsFrame().setVisible(true));
+        SwingUtilities.invokeLater(SettingsFrame::focusOrCreate);
     }
 
     private void centerOnScreen() {
@@ -378,6 +456,47 @@ public class SelectorDialog extends JDialog {
             int y = screen.y + screen.height - toast.getHeight() - 48;
             toast.setLocation(x, y);
             toast.setVisible(true);
+        }
+    }
+
+    /** Pile row: number, truncated URL, assigned-browser chip, private marker. */
+    private class PileRowRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(JList<?> list, Object value,
+                int index, boolean isSelected, boolean cellHasFocus) {
+            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            setBorder(new EmptyBorder(6, 10, 6, 10));
+            if (value instanceof PileModel.Entry entry) {
+                var text = (index + 1) + ".  " + middleTruncate(entry.url(), 58);
+                if (entry.assigned() != null) {
+                    text += "  →  " + entry.assigned().name().trim();
+                    setIcon(Icons.forBrowser(entry.assigned()));
+                }
+                if (entry.privateMode()) {
+                    text += "  (Private)";
+                }
+                setText(text);
+                if (entry.url().equals(highlightUrl) && !isSelected) {
+                    var highlight = UIManager.getColor("Component.infoBackground");
+                    if (highlight == null) {
+                        // FlatLaf (3.4) defines no Component.infoBackground, so
+                        // tint toward the selection color instead of hardcoding
+                        // a color (UIManager tokens only — global constraint).
+                        var bg = UIManager.getColor("List.background");
+                        var sel = UIManager.getColor("List.selectionBackground");
+                        if (bg != null && sel != null) {
+                            highlight = new Color(
+                                bg.getRed() + (sel.getRed() - bg.getRed()) / 6,
+                                bg.getGreen() + (sel.getGreen() - bg.getGreen()) / 6,
+                                bg.getBlue() + (sel.getBlue() - bg.getBlue()) / 6);
+                        }
+                    }
+                    if (highlight != null) {
+                        setBackground(highlight);
+                    }
+                }
+            }
+            return this;
         }
     }
 
