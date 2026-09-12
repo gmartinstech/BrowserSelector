@@ -438,12 +438,15 @@ public class SelectorDialog extends JDialog {
             }
         }
         refreshPileList();
-        if (pile.size() == 0) {
-            dispose();
-            return;
-        }
+        // Surfaced unconditionally, even when the drain empties the pile: the
+        // spec's error handling collects per-link failures and reports them once
+        // after the drain — an empty pile must not swallow the report. The dialog
+        // is still displayable here, so the failure dialog can parent to it.
         if (!failures.isEmpty()) {
             showLaunchFailures(failures);
+        }
+        if (pile.size() == 0) {
+            dispose();
         }
     }
 
