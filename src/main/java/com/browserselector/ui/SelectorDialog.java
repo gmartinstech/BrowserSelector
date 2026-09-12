@@ -276,7 +276,20 @@ public class SelectorDialog extends JDialog {
         setTitle(!pileMode ? "Select Browser"
             : "Select Browsers — " + pile.size() + (pile.size() == 1 ? " link" : " links"));
         if (pileList != null) {
+            // setListData wipes the selection; capture and restore it so a
+            // consecutive assign keeps acting on the same scope (a wiped
+            // selection would silently mean the whole pile) and multi-select
+            // survives data refreshes. Indices past the new row count (rows
+            // removed since the capture) are dropped; restoring nothing when
+            // none remain is correct — assign then applies to the whole pile
+            // by design.
+            var keep = java.util.Arrays.stream(pileList.getSelectedIndices())
+                .filter(i -> i < pile.size())
+                .toArray();
             pileList.setListData(pile.entries().toArray(new PileModel.Entry[0]));
+            if (keep.length > 0) {
+                pileList.setSelectedIndices(keep);
+            }
         }
         openBtn.setText(!pileMode ? "Open" : "Open (" + pile.assignedCount() + " of " + pile.size() + ")");
         // Run the remember gate once per refresh: setListData with an already-
@@ -303,6 +316,10 @@ public class SelectorDialog extends JDialog {
         var entry = selected.length == 1 ? pile.entries().get(selected[0]) : null;
         boolean savable = entry != null && entry.assigned() != null;
         rememberCheckbox.setEnabled(savable);
+        if (!savable) {
+            // A tick that can no longer be honored must not survive invisibly.
+            rememberCheckbox.setSelected(false);
+        }
         patternField.setEnabled(savable && rememberCheckbox.isSelected());
         if (savable) {
             patternField.setText(PatternMatcher.domainToPattern(entry.domain()));
