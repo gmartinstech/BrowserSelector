@@ -11,6 +11,7 @@ A Windows 11 browser selector application built with Java 21. When you click a l
 - **Profile Support** - Detects Chrome/Firefox/Edge profiles as separate options
 - **URL Pattern Rules** - Wildcard patterns like `*.google.com` or `github.com/*`
 - **Incognito Mode** - Shift+click to open in private browsing
+- **Link Piling** - Links opened together pile into one picker window, each with its own browser choice; one action opens them all
 - **Simple/Advanced Mode** - Toggle to show/hide power-user features
 - **Native Look** - Modern Windows 11-style UI with light/dark theme support
 

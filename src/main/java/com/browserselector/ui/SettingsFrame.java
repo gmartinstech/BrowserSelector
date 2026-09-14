@@ -45,6 +45,20 @@ public class SettingsFrame extends JFrame {
 
     private boolean advancedMode;
 
+    private static SettingsFrame current;
+
+    /** Whole-app single instance: focus the existing Settings window, or create the only one. */
+    public static void focusOrCreate() {
+        if (current != null && current.isDisplayable()) {
+            current.setState(Frame.NORMAL);
+            current.toFront();
+            current.requestFocus();
+            return;
+        }
+        current = new SettingsFrame();
+        current.setVisible(true);
+    }
+
     public SettingsFrame() {
         super("Browser Selector - Settings");
         this.db = DatabaseService.getInstance();
@@ -63,7 +77,7 @@ public class SettingsFrame extends JFrame {
     }
 
     private void initUI() {
-        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setSize(700, 500);
 
         tabbedPane = new JTabbedPane();
