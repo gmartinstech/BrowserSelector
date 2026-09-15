@@ -199,12 +199,19 @@ User selects link1, presses "f" → assigned to Firefox; Enter → launches; dia
 No database schema changes. No new dependencies (JNA already present, unused by
 this design; plain `java.net` suffices).
 
-## Open decision (carry into implementation)
+## Open decision — RESOLVED (2026-09-15, packaged probe)
 
 **MSIX activation:** packaged MSIX apps are single-instanced by Windows by
 default, which can swallow the second launch's command-line args before the
-forwarding socket is involved. Verify during implementation with the packaged
-build: launch two links and check whether both URLs arrive. If args are dropped,
-the fix lives in packaging/activation (app execution alias or activation
-redirection), not in this design. The jpackage app-image path — the primary
-distribution in CI — is unaffected and must work regardless.
+forwarding socket is involved.
+
+**Probe result: no arg swallowing — the design works under MSIX as-is.**
+Method: registered a loose MSIX layout (`Add-AppxPackage -Register`) of the
+jpackage app-image (BrowserSwitch 1.9.2.0, identity + app-execution-alias
+activation), invoked the alias twice with distinct URLs, and captured the
+host's stdout. Evidence: the host log shows both payloads —
+`[BrowserSelector] Received URL: https://msix-probe.example/one` and
+`.../two` — the second activation's process exits (forwarded), process count
+returns to 1, and the window title ends at "Select Browsers — 2 links". The
+package was removed after the probe. No packaging/activation work is needed;
+the jpackage app-image path (primary distribution) behaves identically.
