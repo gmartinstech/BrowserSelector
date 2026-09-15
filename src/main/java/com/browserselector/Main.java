@@ -121,16 +121,16 @@ public class Main {
         SelectorDialog.enqueue(url);
     }
 
-    /**
-     * The host lives while any window is visible, plus a 500 ms linger for
-     * near-simultaneous stragglers; a forwarded link arriving during the linger
-     * opens a window and resets the clock (spec: "Host lifecycle").
-     */
     /** Watchdog clock anchor: the last time a dispatch finished putting a
      *  window up (or JVM start, before the first dispatch — see dispatch()).
      *  Volatile: initialized on the main thread, read/written on the EDT after. */
     private static volatile long lastVisible;
 
+    /**
+     * The host lives while any window is visible, plus a 500 ms linger for
+     * near-simultaneous stragglers; a forwarded link arriving during the linger
+     * opens a window and resets the clock (spec: "Host lifecycle").
+     */
     private static void startLingerWatchdog() {
         lastVisible = System.currentTimeMillis();
         var timer = new javax.swing.Timer(150, e -> {

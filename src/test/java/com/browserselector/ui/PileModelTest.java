@@ -57,7 +57,7 @@ class PileModelTest {
         pile.add("https://a.example/1");
         pile.assign(List.of(0), FIREFOX, true);
         assertTrue(pile.entries().get(0).privateMode());
-        // re-assign without shift: browser changes, private flag stays
+        // re-assign without shift: assignment replaced, private flag stays
         pile.assign(List.of(0), FIREFOX, false);
         assertTrue(pile.entries().get(0).privateMode());
     }

@@ -72,6 +72,15 @@ setting `win.norestart=true` in the `[Application]` section of
 second process and the message loop entirely, so the error can no longer occur.
 This is what the CI pipeline and the instructions above now do.
 
+### Troubleshooting: link piling stopped routing links to one window
+
+Link piling coordinates processes over a fixed localhost port (`39999`). If
+another program is already bound to that port, or a firewall/Hyper-V port
+exclusion blocks the bind, the app falls back to an ephemeral port (logged as a
+warning) and behaves like a plain per-link picker for that session. If you see
+that warning repeatedly, free the port or file an issue — the fallback is loud,
+never silent.
+
 ## Releases
 
 Releases are automated via GitHub Actions:

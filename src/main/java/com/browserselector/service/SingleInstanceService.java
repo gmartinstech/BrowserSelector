@@ -73,7 +73,9 @@ public final class SingleInstanceService {
             out.flush();
             return "ok".equals(in.readLine());
         } catch (IOException e) {
-            return false; // no host — exactly the signal to try to become one
+            // No host answered — absent, silent, or too slow. Either way,
+            // try to become one (the degrade ladder handles the rest).
+            return false;
         }
     }
 

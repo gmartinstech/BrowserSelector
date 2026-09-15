@@ -56,6 +56,12 @@ public class SettingsFrame extends JFrame {
             return;
         }
         current = new SettingsFrame();
+        current.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                current = null;
+            }
+        });
         current.setVisible(true);
     }
 
